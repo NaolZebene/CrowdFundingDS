@@ -1,0 +1,25 @@
+{
+  "name": "crowdfunding",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "compile:contracts": "npx hardhat compile",
+    "deploy:contract": "npx hardhat run scripts/deploy.ts --network sepolia",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^4.0.5",
+    "@types/node": "^22.19.13",
+    "ethers": "^6.16.0",
+    "hardhat": "^3.1.10",
+    "typescript": "~5.8.0"
+  },
+  "type": "module",
+  "dependencies": {
+    "dotenv": "^17.3.1"
+  }
+}
