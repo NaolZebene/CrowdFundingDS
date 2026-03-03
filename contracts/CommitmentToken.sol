@@ -2,10 +2,9 @@
 pragma solidity ^0.8.20;
 
 contract CommitmentToken {
-    string public name = "Commitment Token";
-    string public symbol = "COMMIT";
+    string public name;
+    string public symbol;
     uint8 public decimals = 6;
-
     uint256 public totalSupply;
     address public minter;
 
@@ -13,7 +12,12 @@ contract CommitmentToken {
     mapping(address => mapping(address => uint256)) public allowance;
 
     event Transfer(address indexed from, address indexed to, uint256 value);
-    event Approval(address indexed owner, address indexed spender, uint256 value);
+
+    event Approval(
+        address indexed owner,
+        address indexed spender,
+        uint256 value
+    );
     event MinterChanged(address indexed oldMinter, address indexed newMinter);
 
     modifier onlyMinter() {
@@ -21,9 +25,13 @@ contract CommitmentToken {
         _;
     }
 
-    constructor(address minter_) {
+    constructor(address minter_, string memory name_, string memory symbol_) {
         require(minter_ != address(0), "minter=0");
+        require(bytes(name_).length > 0, "name empty");
+        require(bytes(symbol_).length > 0, "symbol empty");
         minter = minter_;
+        name = name_;
+        symbol = symbol_;
     }
 
     function setMinter(address newMinter) external onlyMinter {
@@ -49,7 +57,11 @@ contract CommitmentToken {
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool) {
         uint256 a = allowance[from][msg.sender];
         require(a >= amount, "allowance");
         allowance[from][msg.sender] = a - amount;

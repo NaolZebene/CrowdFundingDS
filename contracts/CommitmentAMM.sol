@@ -2,7 +2,12 @@
 pragma solidity ^0.8.20;
 
 interface IERC20Swap {
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool);
+
     function transfer(address to, uint256 amount) external returns (bool);
 }
 
@@ -16,7 +21,13 @@ contract CommitmentAMM {
     uint256 public feeBps = 30; // 0.30%
 
     event Seeded(uint256 usdcIn, uint256 commitIn);
-    event Swap(address indexed user, address tokenIn, uint256 amountIn, address tokenOut, uint256 amountOut);
+    event Swap(
+        address indexed user,
+        address tokenIn,
+        uint256 amountIn,
+        address tokenOut,
+        uint256 amountOut
+    );
 
     constructor(address usdc_, address commit_) {
         usdc = IERC20Swap(usdc_);
@@ -26,21 +37,34 @@ contract CommitmentAMM {
     function seed(uint256 usdcIn, uint256 commitIn) external {
         require(reserveUsdc == 0 && reserveCommit == 0, "seeded");
         require(usdcIn > 0 && commitIn > 0, "bad");
-        require(usdc.transferFrom(msg.sender, address(this), usdcIn), "usdc tf");
-        require(commit.transferFrom(msg.sender, address(this), commitIn), "commit tf");
+        require(
+            usdc.transferFrom(msg.sender, address(this), usdcIn),
+            "usdc tf"
+        );
+        require(
+            commit.transferFrom(msg.sender, address(this), commitIn),
+            "commit tf"
+        );
         reserveUsdc = usdcIn;
         reserveCommit = commitIn;
         emit Seeded(usdcIn, commitIn);
     }
 
-    function getAmountOut(uint256 amountIn, uint256 reserveIn, uint256 reserveOut) public view returns (uint256) {
-        require(reserveIn > 0 && reserveOut > 0, "no liq");
+    function getAmountOut(
+        uint256 amountIn,
+        uint256 reserveIn,
+        uint256 reserveOut
+    ) public view returns (uint256) {
+        require(reserveIn > 0 && reserveOut > 0, "No liquidity in pool");
         uint256 inWithFee = (amountIn * (10_000 - feeBps)) / 10_000;
         return (inWithFee * reserveOut) / (reserveIn + inWithFee);
     }
 
     // backer sells COMMIT -> USDC
-    function swapCommitForUsdc(uint256 commitIn, uint256 minUsdcOut) external returns (uint256 out) {
+    function swapCommitForUsdc(
+        uint256 commitIn,
+        uint256 minUsdcOut
+    ) external returns (uint256 out) {
         out = getAmountOut(commitIn, reserveCommit, reserveUsdc);
         require(out >= minUsdcOut, "slippage");
         require(commit.transferFrom(msg.sender, address(this), commitIn), "tf");
@@ -51,7 +75,10 @@ contract CommitmentAMM {
     }
 
     // new user buys COMMIT using USDC
-    function swapUsdcForCommit(uint256 usdcIn, uint256 minCommitOut) external returns (uint256 out) {
+    function swapUsdcForCommit(
+        uint256 usdcIn,
+        uint256 minCommitOut
+    ) external returns (uint256 out) {
         out = getAmountOut(usdcIn, reserveUsdc, reserveCommit);
         require(out >= minCommitOut, "slippage");
         require(usdc.transferFrom(msg.sender, address(this), usdcIn), "tf");

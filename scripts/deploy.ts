@@ -34,9 +34,13 @@ async function main() {
   const TREASURY = await treasury.getAddress();
   console.log("TreasuryMultiSigV2:", TREASURY);
 
-  // 3) Commitment token (minter = deployer temporarily)
+  // 3) Commitment token (minter = deployer temporarily; name/symbol per project for Option B)
   const CommitmentToken = await ethers.getContractFactory("CommitmentToken");
-  const commit = await CommitmentToken.deploy(deployerAddr);
+  const commit = await CommitmentToken.deploy(
+    deployerAddr,
+    "Nest Token",
+    "NST"
+  );
   await commit.waitForDeployment();
   const COMMIT = await commit.getAddress();
   console.log("CommitmentToken:", COMMIT);
