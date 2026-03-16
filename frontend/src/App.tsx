@@ -1,17 +1,15 @@
-import { ConnectButton } from "@rainbow-me/rainbowkit";
-import "./App.css";
+import { Switch, Route } from "wouter";
+import Home from "@/pages/Home";
+import AMM from "@/pages/AMM";
+import Portfolio from "@/pages/Portfolio";
 
 function App() {
   return (
-    <div className="app">
-      <header>
-        <h1>CrowdVault</h1>
-        <ConnectButton />
-      </header>
-      <main>
-        <p>Frontend coming soon.</p>
-      </main>
-    </div>
+    <Switch>
+      <Route path="/" component={Home} />
+      <Route path="/amm" component={AMM} />
+      <Route path="/portfolio" component={Portfolio} />
+    </Switch>
   );
 }
 

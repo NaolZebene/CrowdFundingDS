@@ -19,7 +19,8 @@
     "react-dom": "^18.3.1",
     "tailwind-merge": "^3.5.0",
     "viem": "^2.47.4",
-    "wagmi": "^3.5.0"
+    "wagmi": "^3.5.0",
+    "wouter": "^3.9.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
