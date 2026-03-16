@@ -467,7 +467,7 @@ export default function Portfolio() {
               { label: "Markets",   href: "/" },
               { label: "AMM Swap",  href: "/amm" },
               { label: "Portfolio", href: "/portfolio" },
-              { label: "Governance", href: "/" },
+              { label: "Governance", href: "/governance" },
             ].map((l) => (
               <Link key={l.label} href={l.href}>
                 <button className={`px-3 py-1.5 rounded hover:bg-secondary hover:text-foreground transition-colors ${
