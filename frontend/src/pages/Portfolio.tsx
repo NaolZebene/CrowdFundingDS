@@ -2,13 +2,11 @@ import { useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
   Landmark,
   Plus,
   TrendingUp,
-  TrendingDown,
   Coins,
   ArrowUpRight,
   ArrowDownLeft,
