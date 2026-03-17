@@ -2,7 +2,6 @@ import { useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
   Landmark,
@@ -27,121 +26,14 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Link } from "wouter";
+import { useWallet } from "@/hooks/useWallet";
+import { ConnectPrompt } from "@/components/ConnectPrompt";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { setActiveTab, castVote, setShowCreateModal, addProposal } from "@/store/slices/governanceSlice";
+import type { Proposal, ProposalStatus, ProposalCategory } from "@/store/slices/governanceSlice";
 
 /* ─── types ─── */
-type ProposalStatus = "active" | "passed" | "failed" | "pending" | "executed";
-type ProposalCategory = "Fee" | "Security" | "Protocol" | "Treasury" | "Oracle";
-
-interface Proposal {
-  id: number;
-  title: string;
-  summary: string;
-  category: ProposalCategory;
-  status: ProposalStatus;
-  votesFor: number;
-  votesAgainst: number;
-  quorum: number;
-  totalSupply: number;
-  proposer: string;
-  created: Date;
-  ends: Date;
-  executed?: Date;
-  details: string;
-  changes: { param: string; from: string; to: string }[];
-}
-
-/* ─── mock data ─── */
-const PROPOSALS: Proposal[] = [
-  {
-    id: 5,
-    title: "Reduce submission fee from $50 to $25",
-    summary: "Lower the project submission fee to attract more early-stage founders to the platform.",
-    category: "Fee",
-    status: "active",
-    votesFor: 142000,
-    votesAgainst: 38000,
-    quorum: 200000,
-    totalSupply: 1000000,
-    proposer: "0xaB3f...91Cd",
-    created: new Date(Date.now() - 2 * 86400000),
-    ends: new Date(Date.now() + 5 * 86400000),
-    details:
-      "The current $50 submission fee was set during the bootstrap phase to deter spam. With the protocol now established and audited, reducing this to $25 lowers the barrier for genuine founders while still filtering low-effort submissions. Revenue impact is estimated at -$150/month based on current submission volume.",
-    changes: [{ param: "submissionFeeBps", from: "$50 flat", to: "$25 flat" }],
-  },
-  {
-    id: 4,
-    title: "Add Compound V3 as an approved lender",
-    summary: "Whitelist Compound V3 (Comet) as a second yield source alongside Aave.",
-    category: "Protocol",
-    status: "active",
-    votesFor: 95000,
-    votesAgainst: 67000,
-    quorum: 200000,
-    totalSupply: 1000000,
-    proposer: "0x77Ce...F312",
-    created: new Date(Date.now() - 1 * 86400000),
-    ends: new Date(Date.now() + 6 * 86400000),
-    details:
-      "Adding Compound V3 as an approved lender gives the admin the ability to switch yield sources when Compound offers better rates than Aave. This does not change lender automatically — it only expands the whitelist of callable lenders. The admin still executes `setLender()` manually after a governance vote.",
-    changes: [
-      { param: "approvedLenders", from: "[Aave V3]", to: "[Aave V3, Compound V3]" },
-    ],
-  },
-  {
-    id: 3,
-    title: "Lower veto threshold from 30% to 20%",
-    summary: "Make it easier for backers to block suspicious milestone releases.",
-    category: "Security",
-    status: "passed",
-    votesFor: 218000,
-    votesAgainst: 52000,
-    quorum: 200000,
-    totalSupply: 1000000,
-    proposer: "0x55A1...B09E",
-    created: new Date(Date.now() - 10 * 86400000),
-    ends: new Date(Date.now() - 3 * 86400000),
-    executed: new Date(Date.now() - 2 * 86400000),
-    details:
-      "Backers reported that reaching 30% stake coordination is difficult in practice for smaller projects. Lowering to 20% increases backer protection without significantly affecting normal project flow. Simulation across 12 past projects shows only 1 additional veto would have triggered under the new threshold.",
-    changes: [{ param: "VETO_THRESHOLD_BPS", from: "3000 (30%)", to: "2000 (20%)" }],
-  },
-  {
-    id: 2,
-    title: "Increase release fee from 0.5% to 1%",
-    summary: "Raise the milestone release fee sent to the RevenueRouter.",
-    category: "Fee",
-    status: "failed",
-    votesFor: 88000,
-    votesAgainst: 145000,
-    quorum: 200000,
-    totalSupply: 1000000,
-    proposer: "0xC2Fa...4401",
-    created: new Date(Date.now() - 20 * 86400000),
-    ends: new Date(Date.now() - 13 * 86400000),
-    details:
-      "The proposal aimed to double the protocol's take rate on milestone releases. The community rejected this as it would reduce founder net proceeds and make CrowdVault less competitive against other crowdfunding platforms.",
-    changes: [{ param: "releaseFeeBps", from: "50 (0.5%)", to: "100 (1%)" }],
-  },
-  {
-    id: 1,
-    title: "Add Chainlink as an approved oracle",
-    summary: "Whitelist Chainlink price feeds as an approved oracle source.",
-    category: "Oracle",
-    status: "executed",
-    votesFor: 310000,
-    votesAgainst: 12000,
-    quorum: 200000,
-    totalSupply: 1000000,
-    proposer: "0x1A2B...3C4D",
-    created: new Date(Date.now() - 35 * 86400000),
-    ends: new Date(Date.now() - 28 * 86400000),
-    executed: new Date(Date.now() - 27 * 86400000),
-    details:
-      "Initial oracle setup. Chainlink was selected for its battle-tested reliability and Sepolia testnet support.",
-    changes: [{ param: "oracle", from: "0x0000 (none)", to: "0xChainlink (Sepolia)" }],
-  },
-];
+type TabFilter = "all" | "active" | "passed" | "failed" | "executed";
 
 const PROTOCOL_PARAMS = [
   { label: "Submission Fee",     value: "$50 flat",    category: "Fee",      locked: false },
@@ -183,9 +75,16 @@ const CAT_COLOR: Record<ProposalCategory, string> = {
 };
 
 /* ─── proposal card ─── */
-function ProposalCard({ proposal }: { proposal: Proposal }) {
+function ProposalCard({
+  proposal,
+  voted,
+  onVote,
+}: {
+  proposal: Proposal;
+  voted: "for" | "against" | null;
+  onVote: (v: "for" | "against") => void;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const [voted, setVoted] = useState<"for" | "against" | null>(null);
 
   const total   = proposal.votesFor + proposal.votesAgainst;
   const forPct  = total > 0 ? (proposal.votesFor / total) * 100 : 0;
@@ -248,7 +147,7 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
             </span>
             <span className="flex items-center gap-1">
               <Clock className="w-3 h-3" />
-              {isActive ? fmtCountdown(proposal.ends) : `Ended ${fmtDate(proposal.ends)}`}
+              {isActive ? fmtCountdown(new Date(proposal.ends)) : `Ended ${fmtDate(new Date(proposal.ends))}`}
             </span>
           </div>
         </div>
@@ -283,7 +182,7 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
 
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
             <span>Proposed by <span className="font-mono text-foreground">{proposal.proposer}</span></span>
-            <span>Created {fmtDate(proposal.created)}</span>
+            <span>Created {fmtDate(new Date(proposal.created))}</span>
           </div>
 
           {/* voting actions */}
@@ -313,7 +212,7 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
                         size="sm"
                         className="h-8 px-4 text-xs gap-1.5 bg-green-500/10 text-green-400 border border-green-500/30 hover:bg-green-500/20"
                         variant="outline"
-                        onClick={() => setVoted("for")}
+                        onClick={() => onVote("for")}
                       >
                         <ThumbsUp className="w-3.5 h-3.5" /> Vote For
                       </Button>
@@ -321,7 +220,7 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
                         size="sm"
                         className="h-8 px-4 text-xs gap-1.5 bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20"
                         variant="outline"
-                        onClick={() => setVoted("against")}
+                        onClick={() => onVote("against")}
                       >
                         <ThumbsDown className="w-3.5 h-3.5" /> Vote Against
                       </Button>
@@ -336,7 +235,7 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
             <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/25 rounded-lg p-3">
               <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
               <p className="text-[11px] text-green-400">
-                Executed on-chain — {fmtDate(proposal.executed)}
+                Executed on-chain — {fmtDate(new Date(proposal.executed))}
               </p>
             </div>
           )}
@@ -348,12 +247,28 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
 
 /* ─── create proposal modal ─── */
 function CreateProposalModal({ onClose }: { onClose: () => void }) {
+  const dispatch = useAppDispatch();
   const [title, setTitle]     = useState("");
   const [summary, setSummary] = useState("");
   const [category, setCategory] = useState<ProposalCategory>("Protocol");
   const [param, setParam]     = useState("");
   const [fromVal, setFromVal] = useState("");
   const [toVal, setToVal]     = useState("");
+
+  function handleSubmit() {
+    if (!title || !summary) return;
+    dispatch(addProposal({
+      title,
+      summary,
+      category,
+      quorum: 200000,
+      totalSupply: 1000000,
+      proposer: "0xYou...rAddr",
+      details: summary,
+      changes: param ? [{ param, from: fromVal, to: toVal }] : [],
+    }));
+    onClose();
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -459,6 +374,7 @@ function CreateProposalModal({ onClose }: { onClose: () => void }) {
               size="sm"
               className="h-8 text-xs gap-1.5"
               disabled={!title || !summary}
+              onClick={handleSubmit}
             >
               <FileText className="w-3.5 h-3.5" /> Submit Proposal
             </Button>
@@ -470,19 +386,21 @@ function CreateProposalModal({ onClose }: { onClose: () => void }) {
 }
 
 /* ─── main ─── */
-type TabFilter = "all" | "active" | "passed" | "failed" | "executed";
-
 export default function Governance() {
-  const [tab, setTab] = useState<TabFilter>("all");
-  const [showCreate, setShowCreate] = useState(false);
+  const { isConnected, isWrongNetwork } = useWallet();
+  const dispatch = useAppDispatch();
+  const proposals = useAppSelector((s) => s.governance.proposals);
+  const tab = useAppSelector((s) => s.governance.activeTab);
+  const showCreate = useAppSelector((s) => s.governance.showCreateModal);
+  const votes = useAppSelector((s) => s.governance.votes);
 
   const filtered = tab === "all"
-    ? PROPOSALS
-    : PROPOSALS.filter((p) => p.status === tab || (tab === "passed" && p.status === "executed"));
+    ? proposals
+    : proposals.filter((p) => p.status === tab || (tab === "passed" && p.status === "executed"));
 
-  const activeCount   = PROPOSALS.filter((p) => p.status === "active").length;
-  const passedCount   = PROPOSALS.filter((p) => p.status === "passed" || p.status === "executed").length;
-  const failedCount   = PROPOSALS.filter((p) => p.status === "failed").length;
+  const activeCount   = proposals.filter((p) => p.status === "active").length;
+  const passedCount   = proposals.filter((p) => p.status === "passed" || p.status === "executed").length;
+  const failedCount   = proposals.filter((p) => p.status === "failed").length;
   const totalVoters   = 1842;
   const vaultSupply   = "1,000,000";
 
@@ -522,7 +440,7 @@ export default function Governance() {
             <Button
               size="sm"
               className="h-8 px-3 text-xs gap-1.5 hidden sm:flex"
-              onClick={() => setShowCreate(true)}
+              onClick={() => dispatch(setShowCreateModal(true))}
             >
               <Plus className="w-3.5 h-3.5" /> New Proposal
             </Button>
@@ -531,6 +449,7 @@ export default function Governance() {
         </div>
       </nav>
 
+      {(!isConnected || isWrongNetwork) ? <ConnectPrompt /> : (
       <main className="flex-1 max-w-screen-xl mx-auto w-full px-4 py-6 space-y-6">
 
         {/* ── page header ── */}
@@ -546,7 +465,7 @@ export default function Governance() {
           </div>
           <Button
             className="gap-1.5 text-sm self-start sm:self-auto"
-            onClick={() => setShowCreate(true)}
+            onClick={() => dispatch(setShowCreateModal(true))}
           >
             <Plus className="w-4 h-4" /> New Proposal
           </Button>
@@ -577,14 +496,14 @@ export default function Governance() {
             {/* tabs */}
             <div className="flex items-center gap-1 border-b border-border pb-3">
               {([
-                { id: "all",      label: "All",      count: PROPOSALS.length },
+                { id: "all",      label: "All",      count: proposals.length },
                 { id: "active",   label: "Active",   count: activeCount },
                 { id: "passed",   label: "Passed",   count: passedCount },
                 { id: "failed",   label: "Failed",   count: failedCount },
               ] as { id: TabFilter; label: string; count: number }[]).map((t) => (
                 <button
                   key={t.id}
-                  onClick={() => setTab(t.id)}
+                  onClick={() => dispatch(setActiveTab(t.id as "all" | "active" | "passed" | "failed"))}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
                     tab === t.id
                       ? "bg-secondary text-foreground"
@@ -607,7 +526,14 @@ export default function Governance() {
                   No proposals found.
                 </div>
               ) : (
-                filtered.map((p) => <ProposalCard key={p.id} proposal={p} />)
+                filtered.map((p) => (
+                  <ProposalCard
+                    key={p.id}
+                    proposal={p}
+                    voted={votes[p.id] ?? null}
+                    onVote={(v) => dispatch(castVote({ id: p.id, vote: v }))}
+                  />
+                ))
               )}
             </div>
           </div>
@@ -714,6 +640,7 @@ export default function Governance() {
           </div>
         </div>
       </main>
+      )}
 
       {/* ── Footer ── */}
       <footer className="border-t border-border py-5 px-4 mt-6">
@@ -735,7 +662,7 @@ export default function Governance() {
         </div>
       </footer>
 
-      {showCreate && <CreateProposalModal onClose={() => setShowCreate(false)} />}
+      {showCreate && <CreateProposalModal onClose={() => dispatch(setShowCreateModal(false))} />}
     </div>
   );
 }

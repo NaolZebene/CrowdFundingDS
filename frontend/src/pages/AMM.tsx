@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,6 +21,10 @@ import {
   Search,
 } from "lucide-react";
 import { Link } from "wouter";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { selectProject, flipDirection, setInputVal, setSearch } from "@/store/slices/ammSlice";
+import type { AmmProject } from "@/store/slices/ammSlice";
+import { useState } from "react";
 
 /* ─── helpers ─── */
 const fmtUSD = (n: number) => {
@@ -33,13 +37,6 @@ const fmtTime = (d: Date) =>
   d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 /* ─── static data ─── */
-const PROJECTS = [
-  { id: 1, name: "DecentraLend Protocol", symbol: "DLP", price: 1.84, change24h: 6.2, poolUsdc: 84200, poolCommit: 45760, volume24h: 12400, fee: 0.3, category: "DeFi", hot: true },
-  { id: 2, name: "ZK Identity Layer",     symbol: "ZKI", price: 1.32, change24h: -2.1, poolUsdc: 55000, poolCommit: 41666, volume24h: 8100,  fee: 0.3, category: "Tech", hot: false },
-  { id: 3, name: "OnChain Chess Arena",   symbol: "OCA", price: 1.10, change24h: 4.5, poolUsdc: 47800, poolCommit: 43454, volume24h: 5900,  fee: 0.3, category: "Gaming", hot: true },
-  { id: 4, name: "Generative Art Coll.",  symbol: "GAC", price: 0.95, change24h: -0.8, poolUsdc: 31000, poolCommit: 32631, volume24h: 2300,  fee: 0.3, category: "Art", hot: false },
-];
-
 const RECENT_TRADES = [
   { type: "buy",  from: "0x1a2b", amount: 540,   tokens: 293.5, price: 1.840, time: new Date(Date.now() - 12000) },
   { type: "sell", from: "0xf3c9", amount: 120,   tokens: 66.1,  price: 1.815, time: new Date(Date.now() - 47000) },
@@ -64,16 +61,21 @@ function priceImpact(amountIn: number, reserveIn: number) {
 
 /* ─── project selector dropdown ─── */
 function ProjectSelector({
+  projects,
   selected,
   onSelect,
+  search,
+  onSearchChange,
 }: {
-  selected: (typeof PROJECTS)[0];
-  onSelect: (p: (typeof PROJECTS)[0]) => void;
+  projects: AmmProject[];
+  selected: AmmProject;
+  onSelect: (p: AmmProject) => void;
+  search: string;
+  onSearchChange: (v: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
 
-  const filtered = PROJECTS.filter(
+  const filtered = projects.filter(
     (p) =>
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.symbol.toLowerCase().includes(search.toLowerCase()) ||
@@ -82,7 +84,7 @@ function ProjectSelector({
 
   function handleOpen() {
     setOpen((o) => !o);
-    setSearch("");
+    onSearchChange("");
   }
 
   return (
@@ -117,7 +119,7 @@ function ProjectSelector({
                 type="text"
                 placeholder="Search by name, symbol or category..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => onSearchChange(e.target.value)}
                 className="w-full bg-secondary border border-border rounded-md pl-8 pr-3 py-1.5 text-xs outline-none focus:border-primary/50 placeholder:text-muted-foreground/50"
               />
             </div>
@@ -131,7 +133,7 @@ function ProjectSelector({
               filtered.map((p) => (
                 <button
                   key={p.id}
-                  onClick={() => { onSelect(p); setOpen(false); setSearch(""); }}
+                  onClick={() => { onSelect(p); setOpen(false); onSearchChange(""); }}
                   className={`flex items-center gap-2.5 px-3 py-2.5 w-full text-left hover:bg-secondary transition-colors ${
                     p.id === selected.id ? "bg-secondary" : ""
                   }`}
@@ -185,9 +187,14 @@ function PoolStat({ label, value, sub, icon }: { label: string; value: string; s
 
 /* ─── main ─── */
 export default function AMM() {
-  const [project, setProject] = useState(PROJECTS[0]);
-  const [direction, setDirection] = useState<"buy" | "sell">("buy"); // buy = USDC→Commit, sell = Commit→USDC
-  const [inputVal, setInputVal] = useState("");
+  const dispatch = useAppDispatch();
+  const projects = useAppSelector((s) => s.amm.projects);
+  const selectedProjectId = useAppSelector((s) => s.amm.selectedProjectId);
+  const direction = useAppSelector((s) => s.amm.direction);
+  const inputVal = useAppSelector((s) => s.amm.inputVal);
+  const search = useAppSelector((s) => s.amm.search);
+
+  const project = projects.find((p) => p.id === selectedProjectId) ?? projects[0];
 
   const inputNum = parseFloat(inputVal) || 0;
   const reserveIn  = direction === "buy" ? project.poolUsdc   : project.poolCommit;
@@ -206,11 +213,6 @@ export default function AMM() {
 
   const impactColor =
     impact < 1 ? "text-green-400" : impact < 3 ? "text-yellow-400" : "text-red-400";
-
-  function flip() {
-    setDirection((d) => (d === "buy" ? "sell" : "buy"));
-    setInputVal("");
-  }
 
   const fromLabel = direction === "buy" ? "USDC" : project.symbol;
   const toLabel   = direction === "buy" ? project.symbol : "USDC";
@@ -283,7 +285,13 @@ export default function AMM() {
                     {project.category}
                   </Badge>
                 </div>
-                <ProjectSelector selected={project} onSelect={(p) => { setProject(p); setInputVal(""); }} />
+                <ProjectSelector
+                  projects={projects}
+                  selected={project}
+                  onSelect={(p) => dispatch(selectProject(p.id))}
+                  search={search}
+                  onSearchChange={(v) => dispatch(setSearch(v))}
+                />
 
                 {/* price row */}
                 <div className="flex items-center justify-between pt-1">
@@ -323,7 +331,7 @@ export default function AMM() {
                       type="number"
                       placeholder="0.00"
                       value={inputVal}
-                      onChange={(e) => setInputVal(e.target.value)}
+                      onChange={(e) => dispatch(setInputVal(e.target.value))}
                       className="flex-1 bg-transparent text-xl font-mono font-semibold outline-none placeholder:text-muted-foreground/40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                     <div className="flex items-center gap-1.5 bg-card border border-border rounded-md px-2.5 py-1.5 shrink-0">
@@ -345,7 +353,7 @@ export default function AMM() {
                       <button
                         key={pct}
                         className="text-[10px] px-2 py-0.5 rounded bg-card border border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-colors font-mono"
-                        onClick={() => setInputVal(String(pct === 100 ? 1000 : pct * 10))}
+                        onClick={() => dispatch(setInputVal(String(pct === 100 ? 1000 : pct * 10)))}
                       >
                         {pct}%
                       </button>
@@ -356,7 +364,7 @@ export default function AMM() {
                 {/* flip button */}
                 <div className="flex justify-center -my-1">
                   <button
-                    onClick={flip}
+                    onClick={() => dispatch(flipDirection())}
                     className="p-2 rounded-lg bg-secondary border border-border hover:border-primary/50 hover:bg-secondary/80 transition-all text-muted-foreground hover:text-foreground group"
                   >
                     <ArrowUpDown className="w-4 h-4 group-hover:rotate-180 transition-transform duration-300" />

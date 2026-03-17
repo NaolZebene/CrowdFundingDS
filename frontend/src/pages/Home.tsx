@@ -18,8 +18,12 @@ import {
   SlidersHorizontal,
   Flame,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo } from "react";
 import { Link } from "wouter";
+import { useConnectModal } from "@rainbow-me/rainbowkit";
+import { useWallet } from "@/hooks/useWallet";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { setCategory, setSortBy, setSearchQuery } from "@/store/slices/projectsSlice";
 
 /* ─── helpers ─── */
 function pct(raised: number, goal: number) {
@@ -37,109 +41,7 @@ function fmtNum(n: number) {
 /* ─── data ─── */
 const CATEGORIES = ["All", "DeFi", "Tech", "Gaming", "Art", "Science", "Social"];
 
-const PROJECTS = [
-  {
-    id: 1,
-    title: "DecentraLend Protocol",
-    category: "DeFi",
-    description: "Peer-to-peer lending with algorithmic interest rates and no central authority.",
-    raised: 84200,
-    goal: 120000,
-    backers: 312,
-    daysLeft: 14,
-    apy: 8.2,
-    milestones: 4,
-    milestonesCompleted: 1,
-    image: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=800&h=400&fit=crop",
-    hot: true,
-    trending: true,
-  },
-  {
-    id: 2,
-    title: "ZK Identity Layer",
-    category: "Tech",
-    description: "Privacy-preserving KYC for DeFi using zero-knowledge proofs.",
-    raised: 55000,
-    goal: 80000,
-    backers: 189,
-    daysLeft: 22,
-    apy: 6.5,
-    milestones: 3,
-    milestonesCompleted: 1,
-    image: "https://images.unsplash.com/photo-1633265486064-086b219458ec?w=800&h=400&fit=crop",
-    hot: false,
-    trending: true,
-  },
-  {
-    id: 3,
-    title: "OnChain Chess Arena",
-    category: "Gaming",
-    description: "Fully on-chain chess with wager pools, ELO rankings, and tournament contracts.",
-    raised: 47800,
-    goal: 70000,
-    backers: 561,
-    daysLeft: 11,
-    apy: 6.9,
-    milestones: 4,
-    milestonesCompleted: 2,
-    image: "https://images.unsplash.com/photo-1529699211952-734e80c4d42b?w=800&h=400&fit=crop",
-    hot: true,
-    trending: true,
-  },
-  {
-    id: 4,
-    title: "Generative Art Collective",
-    category: "Art",
-    description: "DAO-curated generative art where collectors vote on which pieces get minted.",
-    raised: 31000,
-    goal: 50000,
-    backers: 204,
-    daysLeft: 30,
-    apy: 7.0,
-    milestones: 3,
-    milestonesCompleted: 0,
-    image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&h=400&fit=crop",
-    hot: true,
-    trending: false,
-  },
-  {
-    id: 5,
-    title: "BioData Marketplace",
-    category: "Science",
-    description: "Tokenized scientific data marketplace letting researchers monetize datasets.",
-    raised: 9200,
-    goal: 60000,
-    backers: 41,
-    daysLeft: 45,
-    apy: 9.8,
-    milestones: 6,
-    milestonesCompleted: 0,
-    image: "https://images.unsplash.com/photo-1576086213369-97a306d36557?w=800&h=400&fit=crop",
-    hot: false,
-    trending: false,
-  },
-  {
-    id: 6,
-    title: "ReFi Community Gardens",
-    category: "Social",
-    description: "Regenerative finance for urban community gardens — yield goes back to the soil.",
-    raised: 18400,
-    goal: 40000,
-    backers: 97,
-    daysLeft: 8,
-    apy: 5.1,
-    milestones: 5,
-    milestonesCompleted: 2,
-    image: "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=800&h=400&fit=crop",
-    hot: false,
-    trending: false,
-  },
-];
-
 const SORT_OPTIONS = ["Trending", "Most Funded", "Ending Soon", "Highest APY"];
-
-/* ─── top 4 by raised ─── */
-const TOP_PROJECTS = [...PROJECTS].sort((a, b) => b.raised - a.raised).slice(0, 4);
 
 /* ─── sub-components ─── */
 function StatCard({
@@ -167,7 +69,9 @@ function StatCard({
   );
 }
 
-function ProjectCard({ project }: { project: (typeof PROJECTS)[0] }) {
+import type { Project } from "@/store/slices/projectsSlice";
+
+function ProjectCard({ project, onBack }: { project: Project; onBack: () => void }) {
   const percent = pct(project.raised, project.goal);
   const barColor =
     percent >= 80 ? "bg-green-500" : percent >= 40 ? "bg-blue-500" : "bg-yellow-500";
@@ -247,7 +151,7 @@ function ProjectCard({ project }: { project: (typeof PROJECTS)[0] }) {
           </div>
         </div>
 
-        <Button size="sm" className="w-full h-8 text-xs font-semibold gap-1.5 mt-auto">
+        <Button size="sm" className="w-full h-8 text-xs font-semibold gap-1.5 mt-auto" onClick={onBack}>
           <Coins className="w-3.5 h-3.5" /> Back this Project
         </Button>
       </CardContent>
@@ -257,9 +161,19 @@ function ProjectCard({ project }: { project: (typeof PROJECTS)[0] }) {
 
 /* ─── main ─── */
 export default function Home() {
-  const [activeCategory, setActiveCategory] = useState("All");
-  const [activeSort, setActiveSort] = useState("Trending");
-  const [query, setQuery] = useState("");
+  const { isConnected } = useWallet();
+  const { openConnectModal } = useConnectModal();
+  const dispatch = useAppDispatch();
+  const activeCategory = useAppSelector((s) => s.projects.activeCategory);
+  const activeSort = useAppSelector((s) => s.projects.sortBy);
+  const query = useAppSelector((s) => s.projects.searchQuery);
+  const PROJECTS = useAppSelector((s) => s.projects.items);
+
+  /* ─── top 4 by raised ─── */
+  const TOP_PROJECTS = useMemo(
+    () => [...PROJECTS].sort((a, b) => b.raised - a.raised).slice(0, 4),
+    [PROJECTS]
+  );
 
   const filtered = PROJECTS.filter((p) => {
     const matchCat = activeCategory === "All" || p.category === activeCategory;
@@ -317,7 +231,7 @@ export default function Home() {
               placeholder="Search projects..."
               className="pl-8 h-8 text-xs bg-secondary border-border"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => dispatch(setSearchQuery(e.target.value))}
             />
           </div>
 
@@ -414,7 +328,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                <Button className="gap-2 text-sm w-full sm:w-auto">
+                <Button className="gap-2 text-sm w-full sm:w-auto" onClick={() => { if (!isConnected) openConnectModal?.(); }}>
                   <Coins className="w-4 h-4" /> Back this Project
                   <ArrowUpRight className="w-3.5 h-3.5" />
                 </Button>
@@ -511,7 +425,7 @@ export default function Home() {
               {CATEGORIES.map((cat) => (
                 <button
                   key={cat}
-                  onClick={() => setActiveCategory(cat)}
+                  onClick={() => dispatch(setCategory(cat))}
                   className={`px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors ${
                     activeCategory === cat
                       ? "bg-primary text-primary-foreground"
@@ -530,7 +444,7 @@ export default function Home() {
                 {SORT_OPTIONS.map((s) => (
                   <button
                     key={s}
-                    onClick={() => setActiveSort(s)}
+                    onClick={() => dispatch(setSortBy(s))}
                     className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
                       activeSort === s
                         ? "bg-secondary text-foreground border border-border"
@@ -557,7 +471,7 @@ export default function Home() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filtered.map((p) => (
-                <ProjectCard key={p.id} project={p} />
+                <ProjectCard key={p.id} project={p} onBack={() => { if (!isConnected) openConnectModal?.(); }} />
               ))}
             </div>
           )}
@@ -603,7 +517,7 @@ export default function Home() {
             </p>
           </div>
           <div className="flex gap-3 shrink-0">
-            <Button className="gap-1.5 text-sm px-5">
+            <Button className="gap-1.5 text-sm px-5" onClick={() => { if (!isConnected) openConnectModal?.(); }}>
               <Plus className="w-4 h-4" /> Submit Project
             </Button>
             <Button variant="outline" className="text-sm px-5">Read docs</Button>

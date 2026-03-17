@@ -26,6 +26,11 @@ import {
   Activity,
 } from "lucide-react";
 import { Link } from "wouter";
+import { useWallet } from "@/hooks/useWallet";
+import { ConnectPrompt } from "@/components/ConnectPrompt";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { setHistoryTab, claimYield, claimAllYield, castVeto } from "@/store/slices/portfolioSlice";
+import type { Position, TxRecord } from "@/store/slices/portfolioSlice";
 
 /* ─── helpers ─── */
 const fmtUSD = (n: number) => {
@@ -38,103 +43,6 @@ const fmtTime = (d: Date) =>
   d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
   " · " +
   d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-
-/* ─── mock data ─── */
-const POSITIONS = [
-  {
-    id: 1,
-    name: "DecentraLend Protocol",
-    symbol: "DLP",
-    category: "DeFi",
-    tokensHeld: 293.5,
-    entryPrice: 1.72,
-    currentPrice: 1.84,
-    apy: 8.2,
-    yieldEarned: 14.2,
-    yieldClaimable: 6.8,
-    raised: 84200,
-    goal: 120000,
-    milestones: 4,
-    milestonesCompleted: 1,
-    daysLeft: 14,
-    status: "active" as const,
-    vetoOpen: false,
-  },
-  {
-    id: 2,
-    name: "ZK Identity Layer",
-    symbol: "ZKI",
-    category: "Tech",
-    tokensHeld: 150.0,
-    entryPrice: 1.38,
-    currentPrice: 1.32,
-    apy: 6.5,
-    yieldEarned: 5.9,
-    yieldClaimable: 2.1,
-    raised: 55000,
-    goal: 80000,
-    milestones: 3,
-    milestonesCompleted: 1,
-    daysLeft: 22,
-    status: "active" as const,
-    vetoOpen: false,
-  },
-  {
-    id: 3,
-    name: "OnChain Chess Arena",
-    symbol: "OCA",
-    category: "Gaming",
-    tokensHeld: 412.0,
-    entryPrice: 1.05,
-    currentPrice: 1.10,
-    apy: 6.9,
-    yieldEarned: 22.4,
-    yieldClaimable: 10.3,
-    raised: 47800,
-    goal: 70000,
-    milestones: 4,
-    milestonesCompleted: 2,
-    daysLeft: 11,
-    status: "active" as const,
-    vetoOpen: true,
-  },
-  {
-    id: 4,
-    name: "Generative Art Coll.",
-    symbol: "GAC",
-    category: "Art",
-    tokensHeld: 80.0,
-    entryPrice: 0.98,
-    currentPrice: 0.95,
-    apy: 7.0,
-    yieldEarned: 1.8,
-    yieldClaimable: 0.9,
-    raised: 31000,
-    goal: 50000,
-    milestones: 3,
-    milestonesCompleted: 0,
-    daysLeft: 30,
-    status: "active" as const,
-    vetoOpen: false,
-  },
-];
-
-const HISTORY = [
-  { type: "invest",  project: "DecentraLend Protocol", symbol: "DLP", amount: 504.0,  tokens: 293.5, price: 1.72, date: new Date(Date.now() - 8 * 86400000) },
-  { type: "yield",   project: "OnChain Chess Arena",   symbol: "OCA", amount: 10.3,   tokens: 0,     price: 0,    date: new Date(Date.now() - 5 * 86400000) },
-  { type: "invest",  project: "ZK Identity Layer",     symbol: "ZKI", amount: 207.0,  tokens: 150.0, price: 1.38, date: new Date(Date.now() - 4 * 86400000) },
-  { type: "sell",    project: "OnChain Chess Arena",   symbol: "OCA", amount: 55.0,   tokens: 50.0,  price: 1.10, date: new Date(Date.now() - 2 * 86400000) },
-  { type: "invest",  project: "Generative Art Coll.",  symbol: "GAC", amount: 78.4,   tokens: 80.0,  price: 0.98, date: new Date(Date.now() - 1 * 86400000) },
-  { type: "yield",   project: "DecentraLend Protocol", symbol: "DLP", amount: 6.8,    tokens: 0,     price: 0,    date: new Date(Date.now() - 3600000) },
-];
-
-/* ─── derived totals ─── */
-const totalInvested = POSITIONS.reduce((s, p) => s + p.tokensHeld * p.entryPrice, 0);
-const totalCurrent  = POSITIONS.reduce((s, p) => s + p.tokensHeld * p.currentPrice, 0);
-const totalPnl      = totalCurrent - totalInvested;
-const totalPnlPct   = (totalPnl / totalInvested) * 100;
-const totalYieldClaimable = POSITIONS.reduce((s, p) => s + p.yieldClaimable, 0);
-const totalYieldEarned    = POSITIONS.reduce((s, p) => s + p.yieldEarned, 0);
 
 /* ─── sub-components ─── */
 function SummaryCard({
@@ -173,7 +81,11 @@ function MilestoneBar({ completed, total }: { completed: number; total: number }
   );
 }
 
-function PositionRow({ pos }: { pos: (typeof POSITIONS)[0] }) {
+function PositionRow({ pos, onClaimYield, onCastVeto }: {
+  pos: Position;
+  onClaimYield: () => void;
+  onCastVeto: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const pnl = (pos.currentPrice - pos.entryPrice) * pos.tokensHeld;
   const pnlPct = ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
@@ -316,7 +228,7 @@ function PositionRow({ pos }: { pos: (typeof POSITIONS)[0] }) {
           </div>
 
           <div className="flex flex-wrap gap-2 pt-1">
-            <Button size="sm" className="h-7 px-3 text-xs gap-1.5">
+            <Button size="sm" className="h-7 px-3 text-xs gap-1.5" onClick={onClaimYield}>
               <Coins className="w-3 h-3" /> Claim {fmtUSD(pos.yieldClaimable)} Yield
             </Button>
             <Link href="/amm">
@@ -325,7 +237,7 @@ function PositionRow({ pos }: { pos: (typeof POSITIONS)[0] }) {
               </Button>
             </Link>
             {pos.vetoOpen && (
-              <Button size="sm" variant="outline" className="h-7 px-3 text-xs gap-1.5 border-orange-500/50 text-orange-400 hover:bg-orange-500/10">
+              <Button size="sm" variant="outline" className="h-7 px-3 text-xs gap-1.5 border-orange-500/50 text-orange-400 hover:bg-orange-500/10" onClick={onCastVeto}>
                 <AlertCircle className="w-3 h-3" /> Cast Veto Vote
               </Button>
             )}
@@ -336,7 +248,7 @@ function PositionRow({ pos }: { pos: (typeof POSITIONS)[0] }) {
   );
 }
 
-function HistoryRow({ tx }: { tx: (typeof HISTORY)[0] }) {
+function HistoryRow({ tx }: { tx: TxRecord }) {
   const isInvest = tx.type === "invest";
   const isYield  = tx.type === "yield";
   const isSell   = tx.type === "sell";
@@ -378,16 +290,16 @@ function HistoryRow({ tx }: { tx: (typeof HISTORY)[0] }) {
         )}
       </div>
       <div className="col-span-2 text-right">
-        <p className="text-[10px] text-muted-foreground font-mono">{fmtTime(tx.date)}</p>
+        <p className="text-[10px] text-muted-foreground font-mono">{fmtTime(new Date(tx.date))}</p>
       </div>
     </div>
   );
 }
 
 /* ─── Allocation pie (SVG) ─── */
-function AllocationChart() {
-  const total = totalCurrent;
-  const data = POSITIONS.map((p, i) => ({
+function AllocationChart({ positions }: { positions: Position[] }) {
+  const total = positions.reduce((s, p) => s + p.tokensHeld * p.currentPrice, 0);
+  const data = positions.map((p, i) => ({
     label: p.symbol,
     value: (p.tokensHeld * p.currentPrice) / total,
     colors: ["hsl(var(--primary))", "#3b82f6", "#a855f7", "#f59e0b"],
@@ -421,7 +333,7 @@ function AllocationChart() {
           <path key={s.label} d={s.path} fill={s.color} opacity={0.9} />
         ))}
         <text x="60" y="57" textAnchor="middle" className="text-[8px]" fill="currentColor" fontSize="8" fontWeight="bold">
-          {POSITIONS.length}
+          {positions.length}
         </text>
         <text x="60" y="67" textAnchor="middle" fill="gray" fontSize="6">
           positions
@@ -442,10 +354,21 @@ function AllocationChart() {
 
 /* ─── main page ─── */
 export default function Portfolio() {
-  const [historyTab, setHistoryTab] = useState<"all" | "invest" | "yield" | "sell">("all");
+  const { isConnected, isWrongNetwork } = useWallet();
+  const dispatch = useAppDispatch();
+  const positions = useAppSelector((s) => s.portfolio.positions);
+  const history = useAppSelector((s) => s.portfolio.history);
+  const historyTab = useAppSelector((s) => s.portfolio.historyTab);
+
+  const totalInvested = positions.reduce((s, p) => s + p.tokensHeld * p.entryPrice, 0);
+  const totalCurrent  = positions.reduce((s, p) => s + p.tokensHeld * p.currentPrice, 0);
+  const totalPnl      = totalCurrent - totalInvested;
+  const totalPnlPct   = (totalPnl / totalInvested) * 100;
+  const totalYieldClaimable = positions.reduce((s, p) => s + p.yieldClaimable, 0);
+  const totalYieldEarned    = positions.reduce((s, p) => s + p.yieldEarned, 0);
 
   const filteredHistory =
-    historyTab === "all" ? HISTORY : HISTORY.filter((h) => h.type === historyTab);
+    historyTab === "all" ? history : history.filter((h) => h.type === historyTab);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -488,6 +411,7 @@ export default function Portfolio() {
         </div>
       </nav>
 
+      {(!isConnected || isWrongNetwork) ? <ConnectPrompt /> : (
       <main className="flex-1 max-w-screen-xl mx-auto w-full px-4 py-6 space-y-6">
 
         {/* ── Page header ── */}
@@ -500,7 +424,7 @@ export default function Portfolio() {
             <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded border border-border hover:border-primary/40">
               <RefreshCw className="w-3.5 h-3.5" /> Refresh
             </button>
-            <Button size="sm" className="h-8 gap-1.5 text-xs">
+            <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => dispatch(claimAllYield())}>
               <Coins className="w-3.5 h-3.5" /> Claim All Yield
             </Button>
           </div>
@@ -518,7 +442,7 @@ export default function Portfolio() {
           <SummaryCard
             label="Total Invested"
             value={fmtUSD(totalInvested)}
-            sub={`${POSITIONS.length} active positions`}
+            sub={`${positions.length} active positions`}
             icon={<BarChart2 className="w-4 h-4" />}
           />
           <SummaryCard
@@ -544,7 +468,7 @@ export default function Portfolio() {
           <div className="lg:col-span-2 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Open Positions</h2>
-              <span className="text-[11px] text-muted-foreground">{POSITIONS.length} positions</span>
+              <span className="text-[11px] text-muted-foreground">{positions.length} positions</span>
             </div>
 
             {/* table header */}
@@ -558,12 +482,17 @@ export default function Portfolio() {
             </div>
 
             <div className="space-y-2">
-              {POSITIONS.map((pos) => (
-                <PositionRow key={pos.id} pos={pos} />
+              {positions.map((pos) => (
+                <PositionRow
+                  key={pos.id}
+                  pos={pos}
+                  onClaimYield={() => dispatch(claimYield(pos.id))}
+                  onCastVeto={() => dispatch(castVeto(pos.id))}
+                />
               ))}
             </div>
 
-            {POSITIONS.some((p) => p.vetoOpen) && (
+            {positions.some((p) => p.vetoOpen) && (
               <div className="flex items-start gap-3 bg-orange-500/10 border border-orange-500/25 rounded-lg p-3">
                 <AlertCircle className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
                 <div>
@@ -585,7 +514,7 @@ export default function Portfolio() {
                 <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-4">
                   Allocation
                 </p>
-                <AllocationChart />
+                <AllocationChart positions={positions} />
               </CardContent>
             </Card>
 
@@ -596,7 +525,7 @@ export default function Portfolio() {
                   Yield Breakdown
                 </p>
                 <div className="space-y-2">
-                  {POSITIONS.map((p) => (
+                  {positions.map((p) => (
                     <div key={p.id} className="flex items-center justify-between">
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
@@ -620,7 +549,7 @@ export default function Portfolio() {
                     +{fmtUSD(totalYieldClaimable)}
                   </span>
                 </div>
-                <Button className="w-full h-8 text-xs gap-1.5" size="sm">
+                <Button className="w-full h-8 text-xs gap-1.5" size="sm" onClick={() => dispatch(claimAllYield())}>
                   <Zap className="w-3.5 h-3.5" /> Claim All
                 </Button>
               </CardContent>
@@ -660,7 +589,7 @@ export default function Portfolio() {
               {(["all", "invest", "yield", "sell"] as const).map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => setHistoryTab(tab)}
+                  onClick={() => dispatch(setHistoryTab(tab))}
                   className={`text-[11px] px-2.5 py-1 rounded capitalize transition-colors font-medium ${
                     historyTab === tab
                       ? "bg-secondary text-foreground border border-border"
@@ -689,6 +618,7 @@ export default function Portfolio() {
           </Card>
         </div>
       </main>
+      )}
 
       {/* ── Footer ── */}
       <footer className="border-t border-border py-5 px-4 mt-6">
