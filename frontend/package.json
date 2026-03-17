@@ -22,7 +22,7 @@
     "react-redux": "^9.2.0",
     "tailwind-merge": "^3.5.0",
     "viem": "^2.47.4",
-    "wagmi": "^3.5.0",
+    "wagmi": "^2.14.0",
     "wouter": "^3.9.0"
   },
   "devDependencies": {
