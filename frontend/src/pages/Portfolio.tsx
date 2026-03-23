@@ -22,13 +22,18 @@ import {
   RefreshCw,
   ExternalLink,
   Activity,
+  Loader2,
 } from "lucide-react";
 import { Link } from "wouter";
 import { useWallet } from "@/hooks/useWallet";
 import { ConnectPrompt } from "@/components/ConnectPrompt";
+import { SubmitProjectModal } from "@/components/SubmitProjectModal";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { setHistoryTab, claimYield, claimAllYield, castVeto } from "@/store/slices/portfolioSlice";
-import type { Position, TxRecord } from "@/store/slices/portfolioSlice";
+import { setHistoryTab } from "@/store/slices/portfolioSlice";
+import type { TxRecord } from "@/store/slices/portfolioSlice";
+import { usePortfolioData, type PortfolioPosition } from "@/hooks/usePortfolioData";
+import { useTransactionHistory } from "@/hooks/useTransactionHistory";
+import { CONTRACTS } from "@/config/contracts";
 
 /* ─── helpers ─── */
 const fmtUSD = (n: number) => {
@@ -70,25 +75,33 @@ function MilestoneBar({ completed, total }: { completed: number; total: number }
       {Array.from({ length: total }).map((_, i) => (
         <div
           key={i}
-          className={`h-1.5 flex-1 rounded-full ${
-            i < completed ? "bg-primary" : "bg-secondary"
-          }`}
+          className={`h-1.5 flex-1 rounded-full ${i < completed ? "bg-primary" : "bg-secondary"}`}
         />
       ))}
     </div>
   );
 }
 
-function PositionRow({ pos, onClaimYield, onCastVeto }: {
-  pos: Position;
+function PositionRow({
+  pos,
+  onClaimYield,
+  onCastVeto,
+  claimLoading,
+  vetoLoading,
+  noYield,
+}: {
+  pos: PortfolioPosition;
   onClaimYield: () => void;
   onCastVeto: () => void;
+  claimLoading: boolean;
+  vetoLoading: boolean;
+  noYield: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const pnl = (pos.currentPrice - pos.entryPrice) * pos.tokensHeld;
   const pnlPct = ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
   const posValue = pos.tokensHeld * pos.currentPrice;
-  const fundedPct = Math.round((pos.raised / pos.goal) * 100);
+  const fundedPct = pos.goal > 0 ? Math.round((pos.raised / pos.goal) * 100) : 0;
 
   return (
     <div className="border border-border rounded-lg overflow-hidden">
@@ -105,7 +118,7 @@ function PositionRow({ pos, onClaimYield, onCastVeto }: {
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               <p className="text-xs font-semibold truncate">{pos.name}</p>
-              {pos.vetoOpen && (
+              {pos.vetoOpen && !pos.hasVoted && (
                 <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-500/30 text-orange-400 font-semibold">
                   VETO
                 </span>
@@ -113,9 +126,6 @@ function PositionRow({ pos, onClaimYield, onCastVeto }: {
             </div>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="text-[10px] text-muted-foreground">{pos.symbol}</span>
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-secondary border border-border text-muted-foreground">
-                {pos.category}
-              </span>
             </div>
           </div>
         </div>
@@ -169,12 +179,14 @@ function PositionRow({ pos, onClaimYield, onCastVeto }: {
               <p className="text-sm font-mono font-semibold">{fmtUSD(pos.currentPrice)}</p>
             </div>
             <div>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Total Yield Earned</p>
-              <p className="text-sm font-mono font-semibold text-green-400">+{fmtUSD(pos.yieldEarned)}</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Tokens Held</p>
+              <p className="text-sm font-mono font-semibold">{fmtToken(pos.tokensHeld)}</p>
             </div>
             <div>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">APY</p>
-              <p className="text-sm font-mono font-semibold text-green-400">{pos.apy}%</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">P&L</p>
+              <p className={`text-sm font-mono font-semibold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {pnl >= 0 ? "+" : ""}{fmtUSD(pnl)}
+              </p>
             </div>
           </div>
 
@@ -192,7 +204,7 @@ function PositionRow({ pos, onClaimYield, onCastVeto }: {
             <div className="h-1.5 w-full rounded-full bg-border overflow-hidden">
               <div
                 className={`h-full rounded-full ${fundedPct >= 80 ? "bg-green-500" : fundedPct >= 40 ? "bg-primary" : "bg-yellow-500"}`}
-                style={{ width: `${fundedPct}%` }}
+                style={{ width: `${Math.min(100, fundedPct)}%` }}
               />
             </div>
           </div>
@@ -202,7 +214,7 @@ function PositionRow({ pos, onClaimYield, onCastVeto }: {
               <p className="text-[11px] text-muted-foreground">
                 Milestones — {pos.milestonesCompleted} of {pos.milestones} completed
               </p>
-              {pos.vetoOpen && (
+              {pos.vetoOpen && !pos.hasVoted && (
                 <span className="text-[10px] text-orange-400 flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" /> Veto window open
                 </span>
@@ -226,20 +238,52 @@ function PositionRow({ pos, onClaimYield, onCastVeto }: {
           </div>
 
           <div className="flex flex-wrap gap-2 pt-1">
-            <Button size="sm" className="h-7 px-3 text-xs gap-1.5" onClick={onClaimYield}>
-              <Coins className="w-3 h-3" /> Claim {fmtUSD(pos.yieldClaimable)} Yield
+            <Button
+              size="sm"
+              className="h-7 px-3 text-xs gap-1.5"
+              onClick={onClaimYield}
+              disabled={claimLoading || noYield}
+            >
+              {claimLoading ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Coins className="w-3 h-3" />
+              )}
+              Claim {fmtUSD(pos.yieldClaimable)} Yield
             </Button>
             <Link href="/amm">
               <Button size="sm" variant="outline" className="h-7 px-3 text-xs gap-1.5">
                 <ArrowUpRight className="w-3 h-3" /> Trade on AMM
               </Button>
             </Link>
-            {pos.vetoOpen && (
-              <Button size="sm" variant="outline" className="h-7 px-3 text-xs gap-1.5 border-orange-500/50 text-orange-400 hover:bg-orange-500/10" onClick={onCastVeto}>
-                <AlertCircle className="w-3 h-3" /> Cast Veto Vote
+            {pos.vetoOpen && !pos.hasVoted && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-3 text-xs gap-1.5 border-orange-500/50 text-orange-400 hover:bg-orange-500/10"
+                onClick={onCastVeto}
+                disabled={vetoLoading}
+              >
+                {vetoLoading ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <AlertCircle className="w-3 h-3" />
+                )}
+                Cast Veto Vote
               </Button>
             )}
+            {pos.vetoOpen && pos.hasVoted && (
+              <span className="text-[10px] text-muted-foreground flex items-center gap-1 px-2">
+                <CheckCircle2 className="w-3 h-3 text-green-400" /> Vote cast
+              </span>
+            )}
           </div>
+
+          {pos.metadataUri && (
+            <p className="text-[10px] text-muted-foreground break-all">
+              Metadata: {pos.metadataUri}
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -295,16 +339,17 @@ function HistoryRow({ tx }: { tx: TxRecord }) {
 }
 
 /* ─── Allocation pie (SVG) ─── */
-function AllocationChart({ positions }: { positions: Position[] }) {
+function AllocationChart({ positions }: { positions: PortfolioPosition[] }) {
   const total = positions.reduce((s, p) => s + p.tokensHeld * p.currentPrice, 0);
+  if (total === 0) return null;
+
+  const colors = ["hsl(var(--primary))", "#3b82f6", "#a855f7", "#f59e0b", "#10b981", "#ef4444"];
   const data = positions.map((p, i) => ({
     label: p.symbol,
     value: (p.tokensHeld * p.currentPrice) / total,
-    colors: ["hsl(var(--primary))", "#3b82f6", "#a855f7", "#f59e0b"],
-    color: ["hsl(var(--primary))", "#3b82f6", "#a855f7", "#f59e0b"][i],
+    color: colors[i % colors.length],
   }));
 
-  // build SVG arc paths
   const cx = 60; const cy = 60; const r = 50; const inner = 30;
   let startAngle = -Math.PI / 2;
   const slices = data.map((d) => {
@@ -330,7 +375,7 @@ function AllocationChart({ positions }: { positions: Position[] }) {
         {slices.map((s) => (
           <path key={s.label} d={s.path} fill={s.color} opacity={0.9} />
         ))}
-        <text x="60" y="57" textAnchor="middle" className="text-[8px]" fill="currentColor" fontSize="8" fontWeight="bold">
+        <text x="60" y="57" textAnchor="middle" fill="currentColor" fontSize="8" fontWeight="bold">
           {positions.length}
         </text>
         <text x="60" y="67" textAnchor="middle" fill="gray" fontSize="6">
@@ -352,18 +397,41 @@ function AllocationChart({ positions }: { positions: Position[] }) {
 
 /* ─── main page ─── */
 export default function Portfolio() {
-  const { isConnected, isWrongNetwork } = useWallet();
-  const dispatch = useAppDispatch();
-  const positions = useAppSelector((s) => s.portfolio.positions);
-  const history = useAppSelector((s) => s.portfolio.history);
+  const { isConnected, isWrongNetwork, role } = useWallet();
+  const dispatch   = useAppDispatch();
   const historyTab = useAppSelector((s) => s.portfolio.historyTab);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
 
+  /* ── contract data & actions ── */
+  const {
+    positions,
+    totalYieldClaimable,
+    isLoading,
+    claimYieldLoading,
+    vetoLoading,
+    votingId,
+    claimYield: handleClaimYield,
+    castVeto:   handleVeto,
+    refetch:    handleRefreshPositions,
+  } = usePortfolioData();
+
+  const {
+    history,
+    isLoading: historyLoading,
+    isError:   historyError,
+    refetch:   handleRefreshHistory,
+  } = useTransactionHistory();
+
+  function handleRefresh() {
+    handleRefreshPositions();
+    handleRefreshHistory();
+  }
+
+  /* ── derived summary ── */
   const totalInvested = positions.reduce((s, p) => s + p.tokensHeld * p.entryPrice, 0);
   const totalCurrent  = positions.reduce((s, p) => s + p.tokensHeld * p.currentPrice, 0);
   const totalPnl      = totalCurrent - totalInvested;
-  const totalPnlPct   = (totalPnl / totalInvested) * 100;
-  const totalYieldClaimable = positions.reduce((s, p) => s + p.yieldClaimable, 0);
-  const totalYieldEarned    = positions.reduce((s, p) => s + p.yieldEarned, 0);
+  const totalPnlPct   = totalInvested > 0 ? (totalPnl / totalInvested) * 100 : 0;
 
   const filteredHistory =
     historyTab === "all" ? history : history.filter((h) => h.type === historyTab);
@@ -385,9 +453,10 @@ export default function Portfolio() {
 
           <div className="hidden md:flex items-center gap-1 ml-4 text-xs text-muted-foreground">
             {[
-              { label: "Markets",   href: "/" },
-              { label: "AMM Swap",  href: "/amm" },
-              { label: "Portfolio", href: "/portfolio" },
+              ...(role === "admin" ? [{ label: "Admin Dashboard", href: "/dashboard" }] : []),
+              { label: "Markets",    href: "/" },
+              { label: "AMM Swap",   href: "/amm" },
+              { label: "Portfolio",  href: "/portfolio" },
               { label: "Governance", href: "/governance" },
             ].map((l) => (
               <Link key={l.label} href={l.href}>
@@ -401,7 +470,11 @@ export default function Portfolio() {
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
-            <Button size="sm" className="h-8 px-3 text-xs gap-1.5 hidden sm:flex">
+            <Button
+              size="sm"
+              className="h-8 px-3 text-xs gap-1.5 hidden sm:flex"
+              onClick={() => setShowSubmitModal(true)}
+            >
               <Plus className="w-3.5 h-3.5" /> List Project
             </Button>
             <ConnectButton accountStatus="avatar" showBalance={false} />
@@ -419,11 +492,24 @@ export default function Portfolio() {
             <h1 className="text-2xl font-bold">Positions & Yield</h1>
           </div>
           <div className="flex items-center gap-2">
-            <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded border border-border hover:border-primary/40">
+            <button
+              onClick={handleRefresh}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded border border-border hover:border-primary/40"
+            >
               <RefreshCw className="w-3.5 h-3.5" /> Refresh
             </button>
-            <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => dispatch(claimAllYield())}>
-              <Coins className="w-3.5 h-3.5" /> Claim All Yield
+            <Button
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              onClick={handleClaimYield}
+              disabled={claimYieldLoading || totalYieldClaimable <= 0}
+            >
+              {claimYieldLoading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Coins className="w-3.5 h-3.5" />
+              )}
+              Claim All Yield
             </Button>
           </div>
         </div>
@@ -432,29 +518,28 @@ export default function Portfolio() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <SummaryCard
             label="Portfolio Value"
-            value={fmtUSD(totalCurrent)}
-            sub={`${totalPnl >= 0 ? "+" : ""}${fmtUSD(totalPnl)} (${totalPnlPct >= 0 ? "+" : ""}${totalPnlPct.toFixed(2)}%) all time`}
+            value={isLoading ? "..." : fmtUSD(totalCurrent)}
+            sub={isLoading ? undefined : `${totalPnl >= 0 ? "+" : ""}${fmtUSD(totalPnl)} (${totalPnlPct >= 0 ? "+" : ""}${totalPnlPct.toFixed(2)}%) all time`}
             subGreen={totalPnl >= 0}
             icon={<Wallet className="w-4 h-4" />}
           />
           <SummaryCard
             label="Total Invested"
-            value={fmtUSD(totalInvested)}
-            sub={`${positions.length} active positions`}
+            value={isLoading ? "..." : fmtUSD(totalInvested)}
+            sub={isLoading ? undefined : `${positions.length} active position${positions.length !== 1 ? "s" : ""}`}
             icon={<BarChart2 className="w-4 h-4" />}
           />
           <SummaryCard
             label="Yield Claimable"
-            value={fmtUSD(totalYieldClaimable)}
+            value={isLoading ? "..." : fmtUSD(totalYieldClaimable)}
             sub="Ready to claim now"
             subGreen
             icon={<Zap className="w-4 h-4" />}
           />
           <SummaryCard
-            label="Total Yield Earned"
-            value={fmtUSD(totalYieldEarned)}
-            sub="From Aave lending"
-            subGreen
+            label="Active Positions"
+            value={isLoading ? "..." : String(positions.length)}
+            sub="On Sepolia testnet"
             icon={<TrendingUp className="w-4 h-4" />}
           />
         </div>
@@ -466,7 +551,9 @@ export default function Portfolio() {
           <div className="lg:col-span-2 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Open Positions</h2>
-              <span className="text-[11px] text-muted-foreground">{positions.length} positions</span>
+              <span className="text-[11px] text-muted-foreground">
+                {isLoading ? "Loading..." : `${positions.length} position${positions.length !== 1 ? "s" : ""}`}
+              </span>
             </div>
 
             {/* table header */}
@@ -479,18 +566,41 @@ export default function Portfolio() {
               <span className="col-span-1" />
             </div>
 
-            <div className="space-y-2">
-              {positions.map((pos) => (
-                <PositionRow
-                  key={pos.id}
-                  pos={pos}
-                  onClaimYield={() => dispatch(claimYield(pos.id))}
-                  onCastVeto={() => dispatch(castVeto(pos.id))}
-                />
-              ))}
-            </div>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm">Loading positions…</span>
+              </div>
+            ) : positions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <BarChart2 className="w-8 h-8 text-muted-foreground mb-3 opacity-50" />
+                <p className="text-sm font-medium">No positions found</p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Invest in a project on the Markets page to see your positions here.
+                </p>
+                <Link href="/">
+                  <Button size="sm" variant="outline" className="mt-4 h-8 text-xs gap-1.5">
+                    <Activity className="w-3.5 h-3.5" /> Browse Markets
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {positions.map((pos) => (
+                  <PositionRow
+                    key={String(pos.id)}
+                    pos={pos}
+                    onClaimYield={handleClaimYield}
+                    onCastVeto={() => handleVeto(pos.id)}
+                    claimLoading={claimYieldLoading}
+                    vetoLoading={vetoLoading && votingId === pos.id}
+                    noYield={totalYieldClaimable <= 0}
+                  />
+                ))}
+              </div>
+            )}
 
-            {positions.some((p) => p.vetoOpen) && (
+            {positions.some((p) => p.vetoOpen && !p.hasVoted) && (
               <div className="flex items-start gap-3 bg-orange-500/10 border border-orange-500/25 rounded-lg p-3">
                 <AlertCircle className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
                 <div>
@@ -507,51 +617,64 @@ export default function Portfolio() {
           <div className="space-y-4">
 
             {/* allocation */}
-            <Card className="bg-card border-border">
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-4">
-                  Allocation
-                </p>
-                <AllocationChart positions={positions} />
-              </CardContent>
-            </Card>
+            {positions.length > 0 && (
+              <Card className="bg-card border-border">
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-4">
+                    Allocation
+                  </p>
+                  <AllocationChart positions={positions} />
+                </CardContent>
+              </Card>
+            )}
 
             {/* yield breakdown */}
-            <Card className="bg-card border-border">
-              <CardContent className="p-4 space-y-3">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">
-                  Yield Breakdown
-                </p>
-                <div className="space-y-2">
-                  {positions.map((p) => (
-                    <div key={p.id} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-                          <span className="text-[8px] font-bold text-primary">{p.symbol[0]}</span>
+            {positions.length > 0 && (
+              <Card className="bg-card border-border">
+                <CardContent className="p-4 space-y-3">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">
+                    Yield Breakdown
+                  </p>
+                  <div className="space-y-2">
+                    {positions.map((p) => (
+                      <div key={String(p.id)} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                            <span className="text-[8px] font-bold text-primary">{p.symbol[0]}</span>
+                          </div>
+                          <span className="text-xs text-muted-foreground truncate">{p.name}</span>
                         </div>
-                        <span className="text-xs text-muted-foreground truncate">{p.symbol}</span>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs font-mono font-semibold text-green-400">
+                            +{fmtUSD(p.yieldClaimable)}
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-xs font-mono font-semibold text-green-400">
-                          +{fmtUSD(p.yieldClaimable)}
-                        </p>
-                        <p className="text-[9px] text-muted-foreground font-mono">{p.apy}% APY</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <Separator className="bg-border" />
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-semibold">Total claimable</span>
-                  <span className="text-sm font-mono font-bold text-green-400">
-                    +{fmtUSD(totalYieldClaimable)}
-                  </span>
-                </div>
-                <Button className="w-full h-8 text-xs gap-1.5" size="sm" onClick={() => dispatch(claimAllYield())}>
-                  <Zap className="w-3.5 h-3.5" /> Claim All
-                </Button>
-              </CardContent>
-            </Card>
+                    ))}
+                  </div>
+                  <Separator className="bg-border" />
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-semibold">Total claimable</span>
+                    <span className="text-sm font-mono font-bold text-green-400">
+                      +{fmtUSD(totalYieldClaimable)}
+                    </span>
+                  </div>
+                  <Button
+                    className="w-full h-8 text-xs gap-1.5"
+                    size="sm"
+                    onClick={handleClaimYield}
+                    disabled={claimYieldLoading || totalYieldClaimable <= 0}
+                  >
+                    {claimYieldLoading ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Zap className="w-3.5 h-3.5" />
+                    )}
+                    Claim All
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
 
             {/* quick actions */}
             <Card className="bg-card border-border">
@@ -560,29 +683,51 @@ export default function Portfolio() {
                   Quick Actions
                 </p>
                 {[
-                  { label: "Browse New Projects", href: "/",         icon: <Activity className="w-3.5 h-3.5" /> },
-                  { label: "Swap CommitTokens",   href: "/amm",      icon: <ArrowUpRight className="w-3.5 h-3.5" /> },
-                  { label: "View on Etherscan",   href: "/",         icon: <ExternalLink className="w-3.5 h-3.5" /> },
+                  { label: "Browse New Projects", href: "/",    icon: <Activity className="w-3.5 h-3.5" /> },
+                  { label: "Swap CommitTokens",   href: "/amm", icon: <ArrowUpRight className="w-3.5 h-3.5" /> },
+                  {
+                    label: "View on Etherscan",
+                    href: `https://sepolia.etherscan.io/address/${CONTRACTS.VAULT}`,
+                    icon: <ExternalLink className="w-3.5 h-3.5" />,
+                    external: true,
+                  },
                 ].map((a) => (
-                  <Link key={a.label} href={a.href}>
-                    <button className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-border hover:border-primary/40 hover:bg-secondary/50 transition-all text-xs font-medium group">
-                      <span className="flex items-center gap-2">
-                        <span className="text-muted-foreground group-hover:text-primary transition-colors">{a.icon}</span>
-                        {a.label}
-                      </span>
-                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-                    </button>
-                  </Link>
+                  a.external ? (
+                    <a key={a.label} href={a.href} target="_blank" rel="noopener noreferrer">
+                      <button className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-border hover:border-primary/40 hover:bg-secondary/50 transition-all text-xs font-medium group">
+                        <span className="flex items-center gap-2">
+                          <span className="text-muted-foreground group-hover:text-primary transition-colors">{a.icon}</span>
+                          {a.label}
+                        </span>
+                        <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                      </button>
+                    </a>
+                  ) : (
+                    <Link key={a.label} href={a.href}>
+                      <button className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-border hover:border-primary/40 hover:bg-secondary/50 transition-all text-xs font-medium group">
+                        <span className="flex items-center gap-2">
+                          <span className="text-muted-foreground group-hover:text-primary transition-colors">{a.icon}</span>
+                          {a.label}
+                        </span>
+                        <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                      </button>
+                    </Link>
+                  )
                 ))}
               </CardContent>
             </Card>
           </div>
         </div>
 
-        {/* ── Transaction history ── */}
+        {/* ── Transaction history (mock) ── */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Transaction History</h2>
+            <div>
+              <h2 className="text-sm font-semibold">Transaction History</h2>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {historyLoading ? "Fetching on-chain events…" : `${history.length} transaction${history.length !== 1 ? "s" : ""} on-chain`}
+              </p>
+            </div>
             <div className="flex items-center gap-1">
               {(["all", "invest", "yield", "sell"] as const).map((tab) => (
                 <button
@@ -608,13 +753,34 @@ export default function Portfolio() {
               <span className="col-span-3 text-right">Amount</span>
               <span className="col-span-2 text-right">Date</span>
             </div>
-            <div className="divide-y divide-border">
-              {filteredHistory.map((tx, i) => (
-                <HistoryRow key={i} tx={tx} />
-              ))}
-            </div>
+
+            {historyLoading ? (
+              <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-xs">Reading on-chain events…</span>
+              </div>
+            ) : historyError ? (
+              <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
+                <AlertCircle className="w-4 h-4 text-red-400" />
+                <span className="text-xs text-red-400">Failed to load history — check RPC connection</span>
+              </div>
+            ) : filteredHistory.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 text-center text-muted-foreground">
+                <Activity className="w-6 h-6 mb-2 opacity-40" />
+                <p className="text-xs">
+                  {historyTab === "all" ? "No transactions found on-chain yet." : `No ${historyTab} transactions found.`}
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {filteredHistory.map((tx, i) => (
+                  <HistoryRow key={i} tx={tx} />
+                ))}
+              </div>
+            )}
           </Card>
         </div>
+
       </main>
       )}
 
@@ -637,6 +803,7 @@ export default function Portfolio() {
           </div>
         </div>
       </footer>
+      <SubmitProjectModal open={showSubmitModal} onClose={() => setShowSubmitModal(false)} />
     </div>
   );
 }

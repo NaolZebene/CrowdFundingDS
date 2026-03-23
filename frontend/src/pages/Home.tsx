@@ -1,49 +1,34 @@
+import { useEffect, useMemo, useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { formatUnits, parseUnits } from "viem";
 import {
   Search, Landmark, Clock, Users, TrendingUp, Plus,
   ChevronRight, Shield, Coins, ArrowUpRight, BarChart2,
-  Activity, SlidersHorizontal,
+  Activity, SlidersHorizontal, ExternalLink, XCircle,
 } from "lucide-react";
-import { useMemo } from "react";
 import { Link } from "wouter";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { useWallet } from "@/hooks/useWallet";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setSortBy, setSearchQuery } from "@/store/slices/projectsSlice";
-import { useReadContract, useReadContracts } from "wagmi";
-import { formatUnits } from "viem";
+import { useMarketsData, type MarketProject } from "@/hooks/useMarketsData";
+import { SubmitProjectModal } from "@/components/SubmitProjectModal";
 import { CONTRACTS } from "@/config/contracts";
-import { VAULT_ABI } from "@/config/abis";
+import { ERC20_ABI, VAULT_ABI } from "@/config/abis";
 
 /* ─── helpers ─── */
-const USDC_DEC = 6;
-const toUSDC   = (v: bigint) => Number(formatUnits(v, USDC_DEC));
 const fmtUSD = (n: number) => n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M` : n >= 1_000 ? `$${(n / 1_000).toFixed(1)}K` : `$${n.toFixed(2)}`;
 function pct(raised: number, goal: number) { return goal > 0 ? Math.min(100, Math.round((raised / goal) * 100)) : 0; }
-function daysLeft(deadline: bigint) {
-  const secs = Number(deadline) - Math.floor(Date.now() / 1000);
-  return Math.max(0, Math.ceil(secs / 86400));
-}
-
-/* ─── on-chain project shape ─── */
-interface ChainProject {
-  id: number;
-  founder: string;
-  milestoneCount: number;
-  totalRaised: number;
-  currentMilestone: number;
-  metadataUri: string;
-  fundingGoal: number;
-  fundingDeadline: bigint;
-  approved: boolean;
-  daysLeft: number;
-}
+function shortAddr(a: string) { return `${a.slice(0, 6)}...${a.slice(-4)}`; }
+function fmtDateFromUnix(ts: bigint) { return new Date(Number(ts) * 1000).toLocaleDateString(); }
 
 const SORT_OPTIONS = ["Most Funded", "Ending Soon", "Most Milestones"];
 const PLACEHOLDER_IMG = "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=800&h=400&fit=crop";
+const USDC_DECIMALS = 6;
 
 function StatCard({ label, value, sub, icon, green }: { label: string; value: string; sub?: string; icon: React.ReactNode; green?: boolean }) {
   return (
@@ -58,13 +43,32 @@ function StatCard({ label, value, sub, icon, green }: { label: string; value: st
   );
 }
 
-function ProjectCard({ project, onBack }: { project: ChainProject; onBack: () => void }) {
+function ProjectCard({
+  project,
+  onBack,
+  onOpenDetails,
+}: {
+  project: MarketProject;
+  onBack: () => void;
+  onOpenDetails: (project: MarketProject) => void;
+}) {
   const percent  = pct(project.totalRaised, project.fundingGoal);
   const barColor = percent >= 80 ? "bg-green-500" : percent >= 40 ? "bg-blue-500" : "bg-yellow-500";
   const days     = project.daysLeft;
 
   return (
-    <Card className="bg-card border-border overflow-hidden flex flex-col group hover:border-primary/40 transition-all duration-200 hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.3)]">
+    <Card
+      className="bg-card border-border overflow-hidden flex flex-col group hover:border-primary/40 transition-all duration-200 hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.3)] cursor-pointer"
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpenDetails(project)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpenDetails(project);
+        }
+      }}
+    >
       <div className="relative h-40 overflow-hidden bg-secondary shrink-0">
         <img src={PLACEHOLDER_IMG} alt={`Project #${project.id}`} className="w-full h-full object-cover opacity-75 group-hover:opacity-100 group-hover:scale-105 transition-all duration-300" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
@@ -80,9 +84,9 @@ function ProjectCard({ project, onBack }: { project: ChainProject; onBack: () =>
 
       <CardContent className="flex flex-col flex-1 p-4 gap-3">
         <div>
-          <h3 className="font-semibold text-sm leading-snug">Project #{project.id}</h3>
+          <h3 className="font-semibold text-sm leading-snug">{project.name}</h3>
           <p className="text-[12px] text-muted-foreground leading-relaxed line-clamp-2 mt-1 break-all">
-            {project.metadataUri || "No metadata provided."}
+            {project.description || "No metadata provided."}
           </p>
         </div>
 
@@ -107,7 +111,15 @@ function ProjectCard({ project, onBack }: { project: ChainProject; onBack: () =>
           </div>
         </div>
 
-        <Button size="sm" className="w-full h-8 text-xs font-semibold gap-1.5 mt-auto" onClick={onBack} disabled={!project.approved}>
+        <Button
+          size="sm"
+          className="w-full h-8 text-xs font-semibold gap-1.5 mt-auto"
+          onClick={(e) => {
+            e.stopPropagation();
+            onBack();
+          }}
+          disabled={!project.approved}
+        >
           <Coins className="w-3.5 h-3.5" />
           {project.approved ? "Back this Project" : "Pending Approval"}
         </Button>
@@ -116,58 +128,206 @@ function ProjectCard({ project, onBack }: { project: ChainProject; onBack: () =>
   );
 }
 
+function ProjectDetailsModal({
+  open,
+  project,
+  onClose,
+  onBack,
+  investAmount,
+  onInvestAmountChange,
+  usdcBalance,
+  needsApproval,
+  canTransact,
+  validationError,
+  isInvesting,
+  isConnected,
+  isWrongNetwork,
+  investError,
+}: {
+  open: boolean;
+  project: MarketProject | null;
+  onClose: () => void;
+  onBack: () => void;
+  investAmount: string;
+  onInvestAmountChange: (value: string) => void;
+  usdcBalance: number;
+  needsApproval: boolean;
+  canTransact: boolean;
+  validationError?: string;
+  isInvesting: boolean;
+  isConnected: boolean;
+  isWrongNetwork: boolean;
+  investError?: string;
+}) {
+  if (!open || !project) return null;
+
+  const percent = pct(project.totalRaised, project.fundingGoal);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="bg-card border border-border rounded-xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="relative h-52 bg-secondary">
+          <img src={PLACEHOLDER_IMG} alt={`Project #${project.id}`} className="w-full h-full object-cover opacity-75" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+          <button onClick={onClose} className="absolute top-3 right-3 p-1.5 rounded bg-black/40 hover:bg-black/60 text-white/80 hover:text-white transition-colors">
+            <XCircle className="w-4 h-4" />
+          </button>
+          <div className="absolute left-4 bottom-4 right-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] px-2 py-0.5 rounded bg-black/50 border border-white/10 text-white/80 font-medium">
+                Project #{project.id}
+              </span>
+              <span className={`text-[10px] px-2 py-0.5 rounded border ${project.approved ? "bg-green-500/20 border-green-500/40 text-green-300" : "bg-yellow-500/20 border-yellow-500/40 text-yellow-300"}`}>
+                {project.approved ? "Approved" : "Pending Approval"}
+              </span>
+            </div>
+            <h2 className="text-xl font-bold text-white">{project.name}</h2>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {project.description || "No project description available."}
+          </p>
+
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-mono font-semibold">{fmtUSD(project.totalRaised)}</span>
+              <span className="text-xs text-muted-foreground font-mono">{percent}% of {fmtUSD(project.fundingGoal)}</span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
+              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percent}%` }} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="bg-secondary/40 border border-border rounded-md p-3">
+              <p className="text-[11px] text-muted-foreground">Founder</p>
+              <p className="font-mono">{shortAddr(project.founder)}</p>
+            </div>
+            <div className="bg-secondary/40 border border-border rounded-md p-3">
+              <p className="text-[11px] text-muted-foreground">Milestones</p>
+              <p className="font-mono">{project.currentMilestone}/{project.milestoneCount}</p>
+            </div>
+            <div className="bg-secondary/40 border border-border rounded-md p-3">
+              <p className="text-[11px] text-muted-foreground">Funding Goal</p>
+              <p className="font-mono">{fmtUSD(project.fundingGoal)}</p>
+            </div>
+            <div className="bg-secondary/40 border border-border rounded-md p-3">
+              <p className="text-[11px] text-muted-foreground">Deadline</p>
+              <p className="font-mono">{fmtDateFromUnix(project.fundingDeadline)} ({project.daysLeft}d left)</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="bg-secondary/30 border border-border rounded-md p-3">
+              <p className="text-[11px] text-muted-foreground mb-1">Metadata URI</p>
+              {project.offchainMetadataUri ? (
+                <a
+                  href={project.offchainMetadataUri}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-primary break-all inline-flex items-center gap-1 hover:underline"
+                >
+                  {project.offchainMetadataUri} <ExternalLink className="w-3 h-3" />
+                </a>
+              ) : (
+                <p className="text-xs text-muted-foreground">Not provided</p>
+              )}
+            </div>
+
+            <div className="bg-secondary/30 border border-border rounded-md p-3">
+              <p className="text-[11px] text-muted-foreground mb-1">Additional Files URL</p>
+              {project.additionalFilesUrl ? (
+                <a
+                  href={project.additionalFilesUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-primary break-all inline-flex items-center gap-1 hover:underline"
+                >
+                  {project.additionalFilesUrl} <ExternalLink className="w-3 h-3" />
+                </a>
+              ) : (
+                <p className="text-xs text-muted-foreground">Not provided</p>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-secondary/30 border border-border rounded-md p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] text-muted-foreground">Investment Amount (USDC)</p>
+              <p className="text-[11px] text-muted-foreground font-mono">
+                Balance: {usdcBalance.toFixed(2)}
+              </p>
+            </div>
+            <Input
+              type="number"
+              min={0}
+              step="0.000001"
+              value={investAmount}
+              onChange={(e) => onInvestAmountChange(e.target.value)}
+              placeholder="e.g. 100"
+              className="bg-secondary border-border text-sm"
+            />
+            {validationError && <p className="text-[11px] text-red-400">{validationError}</p>}
+            {!validationError && investError && <p className="text-[11px] text-red-400">{investError}</p>}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between px-5 py-4 border-t border-border">
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onClose}>
+            Close
+          </Button>
+          <Button
+            size="sm"
+            className="h-8 text-xs gap-1.5"
+            onClick={onBack}
+            disabled={!project.approved || isWrongNetwork || isInvesting || (isConnected && !canTransact)}
+          >
+            <Coins className="w-3.5 h-3.5" />
+            {!project.approved
+              ? "Pending Approval"
+              : !isConnected
+              ? "Connect Wallet"
+              : isWrongNetwork
+              ? "Wrong Network"
+              : isInvesting
+              ? "Confirming..."
+              : needsApproval
+              ? "Approve USDC"
+              : "Back this Project"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── main ─── */
 export default function Home() {
-  const { isConnected } = useWallet();
+  const { address, isConnected, isWrongNetwork, role, isRoleLoading } = useWallet();
   const { openConnectModal } = useConnectModal();
   const dispatch       = useAppDispatch();
   const activeSort     = useAppSelector((s) => s.projects.sortBy);
   const query          = useAppSelector((s) => s.projects.searchQuery);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<MarketProject | null>(null);
+  const [investAmount, setInvestAmount] = useState("");
+  const [actionType, setActionType] = useState<"approve" | "invest" | null>(null);
 
-  /* ── chain reads ── */
-  const { data: projectCount } = useReadContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "projectCount" });
-  const { data: tvlRaw }       = useReadContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "totalRaised"  });
-
-  const count = projectCount ? Number(projectCount) : 0;
-
-  const projectCalls = useMemo(() =>
-    Array.from({ length: count }, (_, i) => ({
-      address: CONTRACTS.VAULT as `0x${string}`,
-      abi: VAULT_ABI,
-      functionName: "projects" as const,
-      args: [BigInt(i + 1)] as [bigint],
-    })),
-    [count]
-  );
-
-  const { data: projectsRaw } = useReadContracts({ contracts: projectCalls });
-
-  /* ── parse projects ── */
-  const projects: ChainProject[] = useMemo(() => {
-    if (!projectsRaw) return [];
-    return projectsRaw
-      .map((res, i) => {
-        if (res.status !== "success") return null;
-        const r = res.result as readonly [string, string, bigint, bigint, bigint, bigint, bigint, boolean, string, bigint, bigint, boolean];
-        return {
-          id:               i + 1,
-          founder:          r[0],
-          milestoneCount:   Number(r[2]),
-          totalRaised:      toUSDC(r[3]),
-          currentMilestone: Number(r[5]),
-          metadataUri:      r[8],
-          fundingGoal:      toUSDC(r[9]),
-          fundingDeadline:  r[10],
-          approved:         r[11],
-          daysLeft:         daysLeft(r[10]),
-        } satisfies ChainProject;
-      })
-      .filter(Boolean) as ChainProject[];
-  }, [projectsRaw]);
+  /* ── contract data ── */
+  const { projects, tvl, refetch: refetchMarkets } = useMarketsData();
+  const count = projects.length;
 
   /* ── filter + sort ── */
   const filtered = projects
-    .filter((p) => query === "" || String(p.id).includes(query) || p.metadataUri.toLowerCase().includes(query.toLowerCase()))
+                    .filter((p) =>
+                      query === "" ||
+                      String(p.id).includes(query) ||
+                      p.name.toLowerCase().includes(query.toLowerCase()) ||
+                      p.description.toLowerCase().includes(query.toLowerCase()) ||
+                      p.metadataUri.toLowerCase().includes(query.toLowerCase())
+                    )
     .sort((a, b) => {
       if (activeSort === "Most Funded")     return b.totalRaised - a.totalRaised;
       if (activeSort === "Ending Soon")     return a.daysLeft - b.daysLeft;
@@ -177,7 +337,125 @@ export default function Home() {
 
   const TOP_PROJECTS = [...projects].sort((a, b) => b.totalRaised - a.totalRaised).slice(0, 4);
   const [hero, ...sideProjects] = TOP_PROJECTS;
-  const tvl = tvlRaw ? toUSDC(tvlRaw) : 0;
+
+  const { data: usdcBalanceRaw } = useReadContract({
+    address: CONTRACTS.USDC,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { enabled: !!address },
+  });
+
+  const {
+    data: usdcAllowanceRaw,
+    refetch: refetchAllowance,
+  } = useReadContract({
+    address: CONTRACTS.USDC,
+    abi: ERC20_ABI,
+    functionName: "allowance",
+    args: address ? [address, CONTRACTS.VAULT] : undefined,
+    query: { enabled: !!address },
+  });
+
+  const investAmountRaw = useMemo(() => {
+    if (!investAmount.trim()) return null;
+    try {
+      const parsed = parseUnits(investAmount, USDC_DECIMALS);
+      return parsed > 0n ? parsed : null;
+    } catch {
+      return null;
+    }
+  }, [investAmount]);
+
+  const usdcBalance = usdcBalanceRaw ? Number(formatUnits(usdcBalanceRaw as bigint, USDC_DECIMALS)) : 0;
+  const usdcBalanceBigint = (usdcBalanceRaw as bigint | undefined) ?? 0n;
+  const usdcAllowance = (usdcAllowanceRaw as bigint | undefined) ?? 0n;
+  const needsApproval = !!investAmountRaw && usdcAllowance < investAmountRaw;
+  const insufficientBalance = !!investAmountRaw && investAmountRaw > usdcBalanceBigint;
+  const canTransact = !!investAmountRaw && !insufficientBalance;
+  const validationError = isConnected && !investAmountRaw
+    ? "Enter a valid USDC amount."
+    : insufficientBalance
+    ? "Amount exceeds your USDC balance."
+    : undefined;
+
+  const {
+    writeContract,
+    data: investTxHash,
+    isPending: isWriting,
+    error: writeError,
+  } = useWriteContract();
+
+  const { isLoading: isTxPending, isSuccess: isTxSuccess } =
+    useWaitForTransactionReceipt({ hash: investTxHash });
+  const isInvesting = isWriting || isTxPending;
+
+  useEffect(() => {
+    if (!selectedProject) return;
+    setInvestAmount("");
+  }, [selectedProject?.id]);
+
+  useEffect(() => {
+    if (!isTxSuccess) return;
+    if (actionType === "approve") {
+      void refetchAllowance();
+      if (selectedProject && investAmountRaw) {
+        setActionType("invest");
+        writeContract({
+          address: CONTRACTS.VAULT,
+          abi: VAULT_ABI,
+          functionName: "invest",
+          args: [BigInt(selectedProject.id), investAmountRaw, "0x"],
+        });
+        return;
+      }
+      setActionType(null);
+      return;
+    }
+    if (actionType === "invest") {
+      setSelectedProject(null);
+      setInvestAmount("");
+      setActionType(null);
+      void refetchAllowance();
+      refetchMarkets();
+    }
+  }, [
+    actionType,
+    investAmountRaw,
+    isTxSuccess,
+    refetchAllowance,
+    refetchMarkets,
+    selectedProject,
+    writeContract,
+  ]);
+
+  function handleBackProject() {
+    if (!selectedProject?.approved) return;
+    if (!isConnected) {
+      openConnectModal?.();
+      return;
+    }
+    if (!address || !investAmountRaw) return;
+
+    if (needsApproval) {
+      setActionType("approve");
+      writeContract({
+        address: CONTRACTS.USDC,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [CONTRACTS.VAULT, investAmountRaw],
+      });
+      return;
+    }
+
+    setActionType("invest");
+    writeContract({
+      address: CONTRACTS.VAULT,
+      abi: VAULT_ABI,
+      functionName: "invest",
+      args: [BigInt(selectedProject.id), investAmountRaw, "0x"],
+    });
+  }
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -194,6 +472,7 @@ export default function Home() {
 
           <div className="hidden md:flex items-center gap-1 ml-4 text-xs text-muted-foreground">
             {[
+              ...(role === "admin" ? [{ label: "Admin Dashboard", href: "/dashboard" }] : []),
               { label: "Markets",   href: "/" },
               { label: "AMM Swap",  href: "/amm" },
               { label: "Portfolio", href: "/portfolio" },
@@ -212,9 +491,23 @@ export default function Home() {
             <Input placeholder="Search projects..." className="pl-8 h-8 text-xs bg-secondary border-border" value={query} onChange={(e) => dispatch(setSearchQuery(e.target.value))} />
           </div>
 
-          <Button size="sm" className="h-8 px-3 text-xs gap-1.5 shrink-0 hidden sm:flex">
+          <Button
+            size="sm"
+            className="h-8 px-3 text-xs gap-1.5 shrink-0 hidden sm:flex"
+            onClick={() => {
+              if (!isConnected) {
+                openConnectModal?.();
+                return;
+              }
+              setShowSubmitModal(true);
+            }}
+          >
             <Plus className="w-3.5 h-3.5" /> List Project
           </Button>
+
+          <span className="hidden md:inline-flex text-[10px] px-2 py-1 rounded border border-border text-muted-foreground uppercase font-mono">
+            {isRoleLoading ? "ROLE: CHECKING" : `ROLE: ${role}`}
+          </span>
 
           <a href="https://github.com/NaolZebene/CrowdFundingDS" target="_blank" rel="noreferrer" className="p-2 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground shrink-0">
             <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current">
@@ -247,15 +540,15 @@ export default function Home() {
           ) : hero ? (
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 h-auto lg:h-[360px]">
               {/* hero card */}
-              <div className="lg:col-span-3 relative rounded-xl overflow-hidden border border-border group cursor-pointer h-64 lg:h-full">
+              <div className="lg:col-span-3 relative rounded-xl overflow-hidden border border-border group cursor-pointer h-64 lg:h-full" onClick={() => setSelectedProject(hero)}>
                 <img src={PLACEHOLDER_IMG} alt={`Project #${hero.id}`} className="absolute inset-0 w-full h-full object-cover opacity-70 group-hover:opacity-90 group-hover:scale-105 transition-all duration-500" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
                 <div className="absolute top-4 left-4">
                   <span className="text-xs font-bold bg-primary text-primary-foreground px-2.5 py-1 rounded-md">#1 Most Funded</span>
                 </div>
                 <div className="absolute inset-x-0 bottom-0 p-5">
-                  <h2 className="text-xl font-bold text-white mb-1">Project #{hero.id}</h2>
-                  <p className="text-sm text-white/60 mb-4 line-clamp-2">{hero.metadataUri || "No description available."}</p>
+                  <h2 className="text-xl font-bold text-white mb-1">{hero.name}</h2>
+                  <p className="text-sm text-white/60 mb-4 line-clamp-2">{hero.description || "No description available."}</p>
                   <div className="h-1.5 w-full rounded-full bg-white/20 mb-2 overflow-hidden">
                     <div className="h-full rounded-full bg-primary" style={{ width: `${pct(hero.totalRaised, hero.fundingGoal)}%` }} />
                   </div>
@@ -268,7 +561,7 @@ export default function Home() {
                       <span><Clock className="w-3 h-3 inline mr-1" />{hero.daysLeft}d left</span>
                     </div>
                   </div>
-                  <Button className="gap-2 text-sm w-full sm:w-auto" onClick={() => { if (!isConnected) openConnectModal?.(); }}>
+                  <Button className="gap-2 text-sm w-full sm:w-auto" onClick={(e) => { e.stopPropagation(); setSelectedProject(hero); }}>
                     <Coins className="w-4 h-4" /> Back this Project <ArrowUpRight className="w-3.5 h-3.5" />
                   </Button>
                 </div>
@@ -277,14 +570,14 @@ export default function Home() {
               {/* side cards */}
               <div className="lg:col-span-2 grid grid-cols-1 gap-3">
                 {sideProjects.map((p, i) => (
-                  <div key={p.id} className="relative rounded-xl overflow-hidden border border-border group cursor-pointer flex-1" style={{ minHeight: "100px" }}>
+                  <div key={p.id} className="relative rounded-xl overflow-hidden border border-border group cursor-pointer flex-1" style={{ minHeight: "100px" }} onClick={() => setSelectedProject(p)}>
                     <img src={PLACEHOLDER_IMG} alt={`Project #${p.id}`} className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-70 group-hover:scale-105 transition-all duration-500" />
                     <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/50 to-transparent" />
                     <div className="relative p-4 h-full flex flex-col justify-between">
                       <div className="flex items-start justify-between">
                         <div>
                           <span className="text-[10px] font-bold text-primary/80 uppercase tracking-wider">#{i + 2} Funded</span>
-                          <h3 className="text-sm font-semibold text-white leading-tight mt-0.5">Project #{p.id}</h3>
+                          <h3 className="text-sm font-semibold text-white leading-tight mt-0.5">{p.name}</h3>
                         </div>
                       </div>
                       <div>
@@ -336,7 +629,12 @@ export default function Home() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filtered.map((p) => (
-                <ProjectCard key={p.id} project={p} onBack={() => { if (!isConnected) openConnectModal?.(); }} />
+                <ProjectCard
+                  key={p.id}
+                  project={p}
+                  onOpenDetails={setSelectedProject}
+                  onBack={() => setSelectedProject(p)}
+                />
               ))}
             </div>
           )}
@@ -367,8 +665,17 @@ export default function Home() {
             <p className="text-xs text-muted-foreground max-w-md">Submit a project with milestones, a funding goal, and a deadline. Backers earn yield from day one.</p>
           </div>
           <div className="flex gap-3 shrink-0">
-            <Button className="gap-1.5 text-sm px-5" onClick={() => { if (!isConnected) openConnectModal?.(); }}>
-              <Plus className="w-4 h-4" /> Submit Project
+            <Button
+              className="gap-1.5 text-sm px-5"
+              onClick={() => {
+                if (!isConnected) {
+                  openConnectModal?.();
+                  return;
+                }
+                setShowSubmitModal(true);
+              }}
+            >
+              <Plus className="w-4 h-4" /> {isConnected ? "Submit Project" : "Connect to Submit"}
             </Button>
           </div>
         </div>
@@ -389,6 +696,23 @@ export default function Home() {
           </span>
         </div>
       </footer>
+      <ProjectDetailsModal
+        open={!!selectedProject}
+        project={selectedProject}
+        onClose={() => setSelectedProject(null)}
+        onBack={handleBackProject}
+        investAmount={investAmount}
+        onInvestAmountChange={setInvestAmount}
+        usdcBalance={usdcBalance}
+        needsApproval={needsApproval}
+        canTransact={canTransact}
+        validationError={validationError}
+        isInvesting={isInvesting}
+        isConnected={isConnected}
+        isWrongNetwork={isWrongNetwork}
+        investError={writeError?.message}
+      />
+      <SubmitProjectModal open={showSubmitModal} onClose={() => setShowSubmitModal(false)} />
     </div>
   );
 }

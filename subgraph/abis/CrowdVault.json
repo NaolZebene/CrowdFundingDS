@@ -1,0 +1,98 @@
+[
+  {
+    "type": "event",
+    "name": "ProjectCreated",
+    "inputs": [
+      { "indexed": true, "name": "projectId", "type": "uint256" },
+      { "indexed": false, "name": "founder", "type": "address" },
+      { "indexed": false, "name": "treasury", "type": "address" },
+      { "indexed": false, "name": "milestoneCount", "type": "uint256" },
+      { "indexed": false, "name": "metadataUri", "type": "string" },
+      { "indexed": false, "name": "name", "type": "string" },
+      { "indexed": false, "name": "description", "type": "string" },
+      { "indexed": false, "name": "additionalFilesUrl", "type": "string" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "ProjectApproved",
+    "inputs": [{ "indexed": true, "name": "projectId", "type": "uint256" }]
+  },
+  {
+    "type": "event",
+    "name": "ProjectRegistered",
+    "inputs": [
+      { "indexed": true, "name": "projectId", "type": "uint256" },
+      { "indexed": true, "name": "user", "type": "address" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "Invested",
+    "inputs": [
+      { "indexed": true, "name": "projectId", "type": "uint256" },
+      { "indexed": true, "name": "investor", "type": "address" },
+      { "indexed": false, "name": "amount", "type": "uint256" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "Refunded",
+    "inputs": [
+      { "indexed": true, "name": "projectId", "type": "uint256" },
+      { "indexed": true, "name": "investor", "type": "address" },
+      { "indexed": false, "name": "amount", "type": "uint256" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "FundsReleased",
+    "inputs": [
+      { "indexed": true, "name": "projectId", "type": "uint256" },
+      { "indexed": true, "name": "milestone", "type": "uint256" },
+      { "indexed": false, "name": "amount", "type": "uint256" },
+      { "indexed": false, "name": "treasury", "type": "address" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "ReleaseRequested",
+    "inputs": [
+      { "indexed": true, "name": "projectId", "type": "uint256" },
+      { "indexed": true, "name": "milestone", "type": "uint256" },
+      { "indexed": false, "name": "requestedAt", "type": "uint256" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "MilestoneVerified",
+    "inputs": [
+      { "indexed": true, "name": "projectId", "type": "uint256" },
+      { "indexed": true, "name": "milestone", "type": "uint256" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "VetoedEvent",
+    "inputs": [
+      { "indexed": true, "name": "projectId", "type": "uint256" },
+      { "indexed": true, "name": "by", "type": "address" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "VetoCleared",
+    "inputs": [
+      { "indexed": true, "name": "projectId", "type": "uint256" },
+      { "indexed": true, "name": "byTreasury", "type": "address" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "YieldClaimed",
+    "inputs": [
+      { "indexed": true, "name": "user", "type": "address" },
+      { "indexed": false, "name": "amount", "type": "uint256" }
+    ]
+  }
+]

@@ -74,6 +74,10 @@ contract CommitmentAMM is ERC1155Holder {
         _;
     }
 
+    function isAdmin(address user) external view returns (bool) {
+        return user == admin;
+    }
+
     constructor(address usdc_, address commit_, address vault_) {
         usdc = IERC20Swap(usdc_);
         commit = ICommitSwap(commit_);

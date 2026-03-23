@@ -27,6 +27,8 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { useWallet } from "@/hooks/useWallet";
+import { useGovernanceIndexedData } from "@/hooks/useGovernanceIndexedData";
+import { usePortfolioData } from "@/hooks/usePortfolioData";
 import { ConnectPrompt } from "@/components/ConnectPrompt";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setActiveTab, castVote, setShowCreateModal, addProposal } from "@/store/slices/governanceSlice";
@@ -49,6 +51,7 @@ const PROTOCOL_PARAMS = [
 /* ─── helpers ─── */
 const fmtDate = (d: Date) =>
   d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+const shortAddr = (a: string) => `${a.slice(0, 6)}...${a.slice(-4)}`;
 
 const fmtCountdown = (d: Date) => {
   const diff = d.getTime() - Date.now();
@@ -246,7 +249,13 @@ function ProposalCard({
 }
 
 /* ─── create proposal modal ─── */
-function CreateProposalModal({ onClose }: { onClose: () => void }) {
+function CreateProposalModal({
+  onClose,
+  canCreate,
+}: {
+  onClose: () => void;
+  canCreate: boolean;
+}) {
   const dispatch = useAppDispatch();
   const [title, setTitle]     = useState("");
   const [summary, setSummary] = useState("");
@@ -256,6 +265,7 @@ function CreateProposalModal({ onClose }: { onClose: () => void }) {
   const [toVal, setToVal]     = useState("");
 
   function handleSubmit() {
+    if (!canCreate) return;
     if (!title || !summary) return;
     dispatch(addProposal({
       title,
@@ -373,7 +383,7 @@ function CreateProposalModal({ onClose }: { onClose: () => void }) {
             <Button
               size="sm"
               className="h-8 text-xs gap-1.5"
-              disabled={!title || !summary}
+              disabled={!canCreate || !title || !summary}
               onClick={handleSubmit}
             >
               <FileText className="w-3.5 h-3.5" /> Submit Proposal
@@ -387,12 +397,28 @@ function CreateProposalModal({ onClose }: { onClose: () => void }) {
 
 /* ─── main ─── */
 export default function Governance() {
-  const { isConnected, isWrongNetwork } = useWallet();
+  const { isConnected, isWrongNetwork, address, role, isAdmin, isRoleLoading } = useWallet();
   const dispatch = useAppDispatch();
   const proposals = useAppSelector((s) => s.governance.proposals);
   const tab = useAppSelector((s) => s.governance.activeTab);
   const showCreate = useAppSelector((s) => s.governance.showCreateModal);
   const votes = useAppSelector((s) => s.governance.votes);
+  const {
+    loading: indexLoading,
+    error: indexError,
+    stats,
+    recentVotes,
+    topParticipants,
+    myGovernance,
+  } = useGovernanceIndexedData(address);
+  const {
+    positions,
+    vetoLoading,
+    votingId,
+    castVeto: castVetoOnchain,
+  } = usePortfolioData();
+
+  const liveVetoProjects = positions.filter((p) => p.vetoOpen);
 
   const filtered = tab === "all"
     ? proposals
@@ -401,8 +427,7 @@ export default function Governance() {
   const activeCount   = proposals.filter((p) => p.status === "active").length;
   const passedCount   = proposals.filter((p) => p.status === "passed" || p.status === "executed").length;
   const failedCount   = proposals.filter((p) => p.status === "failed").length;
-  const totalVoters   = 1842;
-  const vaultSupply   = "1,000,000";
+  const totalVoters = stats.uniqueVoters;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -421,6 +446,7 @@ export default function Governance() {
 
           <div className="hidden md:flex items-center gap-1 ml-4 text-xs text-muted-foreground">
             {[
+              ...(role === "admin" ? [{ label: "Admin Dashboard", href: "/dashboard" }] : []),
               { label: "Markets",    href: "/" },
               { label: "AMM Swap",   href: "/amm" },
               { label: "Portfolio",  href: "/portfolio" },
@@ -437,13 +463,15 @@ export default function Governance() {
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
-            <Button
-              size="sm"
-              className="h-8 px-3 text-xs gap-1.5 hidden sm:flex"
-              onClick={() => dispatch(setShowCreateModal(true))}
-            >
-              <Plus className="w-3.5 h-3.5" /> New Proposal
-            </Button>
+            {isAdmin && !isRoleLoading ? (
+              <Button
+                size="sm"
+                className="h-8 px-3 text-xs gap-1.5 hidden sm:flex"
+                onClick={() => dispatch(setShowCreateModal(true))}
+              >
+                <Plus className="w-3.5 h-3.5" /> New Proposal
+              </Button>
+            ) : null}
             <ConnectButton accountStatus="avatar" showBalance={false} />
           </div>
         </div>
@@ -462,13 +490,21 @@ export default function Governance() {
             <p className="text-sm text-muted-foreground mt-1">
               VAULT token holders vote on parameter changes, upgrades, and protocol direction.
             </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Session role:{" "}
+              <span className="font-mono text-foreground uppercase">
+                {isRoleLoading ? "checking..." : role}
+              </span>
+            </p>
           </div>
-          <Button
-            className="gap-1.5 text-sm self-start sm:self-auto"
-            onClick={() => dispatch(setShowCreateModal(true))}
-          >
-            <Plus className="w-4 h-4" /> New Proposal
-          </Button>
+          {isAdmin && !isRoleLoading ? (
+            <Button
+              className="gap-1.5 text-sm self-start sm:self-auto"
+              onClick={() => dispatch(setShowCreateModal(true))}
+            >
+              <Plus className="w-4 h-4" /> New Proposal
+            </Button>
+          ) : null}
         </div>
 
         {/* ── stats row ── */}
@@ -487,6 +523,13 @@ export default function Governance() {
               </div>
             </div>
           ))}
+        </div>
+        <div className="text-[11px] text-muted-foreground">
+          {indexLoading
+            ? "Syncing governance relationships from subgraph..."
+            : indexError
+            ? "Subgraph unavailable: governance analytics temporarily using stale/cache data."
+            : `Indexed governance active: ${stats.projectsTracked} projects tracked, ${stats.votedProjectsCount} projects with veto activity.`}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
@@ -545,33 +588,130 @@ export default function Governance() {
             <Card className="bg-card border-border">
               <CardContent className="p-4 space-y-3">
                 <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">
-                  Your Voting Power
+                  Your Governance Stake
                 </p>
                 <div className="flex items-end gap-2">
-                  <span className="text-2xl font-mono font-bold">4,200</span>
-                  <span className="text-sm text-muted-foreground mb-0.5">VAULT</span>
+                  <span className="text-2xl font-mono font-bold">{myGovernance.stakeUsdc.toFixed(2)}</span>
+                  <span className="text-sm text-muted-foreground mb-0.5">USDC stake</span>
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-[11px] text-muted-foreground">
-                    <span>Share of supply</span>
-                    <span className="font-mono">0.42%</span>
-                  </div>
-                  <div className="h-1.5 w-full rounded-full bg-secondary overflow-hidden">
-                    <div className="h-full rounded-full bg-primary" style={{ width: "0.42%" }} />
+                    <span>Projects involved</span>
+                    <span className="font-mono">{myGovernance.projectsInvolved}</span>
                   </div>
                   <p className="text-[10px] text-muted-foreground">
-                    Total supply: <span className="font-mono text-foreground">{vaultSupply} VAULT</span>
+                    Veto votes cast: <span className="font-mono text-foreground">{myGovernance.votesCast}</span>
                   </p>
                 </div>
                 <Separator className="bg-border" />
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Proposals you can create</span>
-                  <span className="font-mono text-green-400">✓ Eligible</span>
+                  <span className="text-muted-foreground">Indexed participants</span>
+                  <span className="font-mono">{stats.uniqueParticipants}</span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Min. to propose</span>
-                  <span className="font-mono">1,000 VAULT</span>
+                  <span className="text-muted-foreground">Voters observed</span>
+                  <span className="font-mono">{stats.uniqueVoters}</span>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* live on-chain veto actions */}
+            <Card className="bg-card border-border">
+              <CardContent className="p-4 space-y-3">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">
+                  Live Release Vetoes
+                </p>
+                {liveVetoProjects.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No open release-veto windows for your current holdings.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {liveVetoProjects.map((p) => (
+                      <div key={p.id.toString()} className="border border-border rounded-md p-2.5 space-y-2">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-muted-foreground">
+                            Project #{p.id.toString()}
+                          </span>
+                          <span className="font-mono text-foreground">
+                            Stake {p.tokensHeld.toFixed(2)}
+                          </span>
+                        </div>
+                        {p.hasVoted ? (
+                          <div className="text-[11px] text-green-400 border border-green-500/30 bg-green-500/10 rounded px-2 py-1">
+                            You already cast your veto vote.
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            className="h-8 w-full text-xs gap-1.5"
+                            disabled={vetoLoading}
+                            onClick={() => castVetoOnchain(p.id)}
+                          >
+                            {vetoLoading && votingId === p.id ? (
+                              <>
+                                <Clock className="w-3.5 h-3.5 animate-spin" /> Confirming...
+                              </>
+                            ) : (
+                              <>
+                                <Shield className="w-3.5 h-3.5" /> Cast On-Chain Veto
+                              </>
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  This section calls the real `veto(projectId)` contract method.
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* recent veto activity */}
+            <Card className="bg-card border-border">
+              <CardContent className="p-4 space-y-3">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">
+                  Recent Veto Activity
+                </p>
+                {recentVotes.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No veto votes indexed yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {recentVotes.map((v) => (
+                      <div key={v.id} className="flex items-center justify-between text-[11px]">
+                        <span className="text-muted-foreground">
+                          {shortAddr(v.voter)} on Project #{v.projectId}
+                        </span>
+                        <span className="font-mono text-muted-foreground">
+                          {fmtDate(new Date(v.timestamp))}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* top participants */}
+            <Card className="bg-card border-border">
+              <CardContent className="p-4 space-y-3">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">
+                  Top Participants
+                </p>
+                {topParticipants.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No governance participants indexed yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {topParticipants.map((p) => (
+                      <div key={`${p.user}-${p.investedUsdc}`} className="flex items-center justify-between text-[11px]">
+                        <span className="text-muted-foreground">{shortAddr(p.user)}</span>
+                        <span className="font-mono">{p.investedUsdc.toFixed(2)} USDC</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -662,7 +802,12 @@ export default function Governance() {
         </div>
       </footer>
 
-      {showCreate && <CreateProposalModal onClose={() => dispatch(setShowCreateModal(false))} />}
+      {showCreate && (
+        <CreateProposalModal
+          canCreate={isAdmin}
+          onClose={() => dispatch(setShowCreateModal(false))}
+        />
+      )}
     </div>
   );
 }

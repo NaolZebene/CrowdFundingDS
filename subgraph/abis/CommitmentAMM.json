@@ -1,0 +1,37 @@
+[
+  {
+    "type": "event",
+    "name": "Seeded",
+    "inputs": [
+      { "indexed": true, "name": "projectId", "type": "uint256" },
+      { "indexed": false, "name": "usdcIn", "type": "uint256" },
+      { "indexed": false, "name": "commitIn", "type": "uint256" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "LiquidityRemoved",
+    "inputs": [
+      { "indexed": true, "name": "projectId", "type": "uint256" },
+      { "indexed": false, "name": "usdcOut", "type": "uint256" },
+      { "indexed": false, "name": "commitOut", "type": "uint256" }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "FeeSet",
+    "inputs": [{ "indexed": false, "name": "feeBps", "type": "uint256" }]
+  },
+  {
+    "type": "event",
+    "name": "Swap",
+    "inputs": [
+      { "indexed": true, "name": "projectId", "type": "uint256" },
+      { "indexed": true, "name": "user", "type": "address" },
+      { "indexed": false, "name": "tokenIn", "type": "address" },
+      { "indexed": false, "name": "amountIn", "type": "uint256" },
+      { "indexed": false, "name": "tokenOut", "type": "address" },
+      { "indexed": false, "name": "amountOut", "type": "uint256" }
+    ]
+  }
+]

@@ -117,6 +117,9 @@ contract CrowdVault {
         uint256 fundingGoal;
         uint256 fundingDeadline;
         bool approved;
+        string name;
+        string description;
+        string additionalFilesUrl;
     }
 
     uint256 public projectCount;
@@ -152,7 +155,10 @@ contract CrowdVault {
         address founder,
         address treasury,
         uint256 milestoneCount,
-        string metadataUri
+        string metadataUri,
+        string name,
+        string description,
+        string additionalFilesUrl
     );
 
     event Invested(
@@ -215,6 +221,10 @@ contract CrowdVault {
     modifier validProject(uint256 projectId) {
         if (projectId == 0 || projectId > projectCount) revert BadProject();
         _;
+    }
+
+    function isAdmin(address user) external view returns (bool) {
+        return user == admin;
     }
 
     constructor(address usdc_, address commit_) {
@@ -292,6 +302,9 @@ contract CrowdVault {
     function createProject(
         address treasury_,
         uint256 milestoneCount_,
+        string calldata name_,
+        string calldata description_,
+        string calldata additionalFilesUrl_,
         string calldata metadataUri_,
         uint256 fundingGoal_,
         uint256 fundingDeadline_
@@ -312,20 +325,22 @@ contract CrowdVault {
 
         projectCount++;
         projectId = projectCount;
-        projects[projectId] = Project({
-            founder: msg.sender,
-            treasury: treasury_,
-            milestoneCount: milestoneCount_,
-            totalRaised: 0,
-            totalReleased: 0,
-            currentMilestone: 0,
-            releaseRequestedAt: 0,
-            releaseVetoed: false,
-            metadataUri: metadataUri_,
-            fundingGoal: fundingGoal_,
-            fundingDeadline: fundingDeadline_,
-            approved: false
-        });
+        Project storage p = projects[projectId];
+        p.founder = msg.sender;
+        p.treasury = treasury_;
+        p.milestoneCount = milestoneCount_;
+        p.totalRaised = 0;
+        p.totalReleased = 0;
+        p.currentMilestone = 0;
+        p.releaseRequestedAt = 0;
+        p.releaseVetoed = false;
+        p.metadataUri = metadataUri_;
+        p.fundingGoal = fundingGoal_;
+        p.fundingDeadline = fundingDeadline_;
+        p.approved = false;
+        p.name = name_;
+        p.description = description_;
+        p.additionalFilesUrl = additionalFilesUrl_;
         founderProjects[msg.sender].push(projectId);
 
         emit ProjectCreated(
@@ -333,7 +348,10 @@ contract CrowdVault {
             msg.sender,
             treasury_,
             milestoneCount_,
-            metadataUri_
+            metadataUri_,
+            name_,
+            description_,
+            additionalFilesUrl_
         );
     }
 

@@ -1,5 +1,19 @@
 # React + TypeScript + Vite
 
+## Environment setup
+
+RainbowKit requires a WalletConnect Cloud project ID.
+
+1. Copy `.env.example` to `.env`.
+2. Set `VITE_WALLETCONNECT_PROJECT_ID` with your WalletConnect Cloud project ID.
+3. Set `VITE_SUBGRAPH_URL` with your GraphQL endpoint for the CrowdVault subgraph.
+
+Example:
+
+```bash
+cp .env.example .env
+```
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

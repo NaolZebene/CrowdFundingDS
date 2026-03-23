@@ -11,43 +11,23 @@ import {
 import { Link } from "wouter";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { selectProject, flipDirection, setInputVal, setSearch } from "@/store/slices/ammSlice";
-import {
-  useAccount, useReadContract, useReadContracts,
-  useWriteContract, useWaitForTransactionReceipt,
-} from "wagmi";
-import { parseUnits, formatUnits } from "viem";
-import { CONTRACTS } from "@/config/contracts";
-import { AMM_ABI, ERC20_ABI, ERC1155_ABI, VAULT_ABI } from "@/config/abis";
-
-/* ─── constants ─── */
-const USDC_DECIMALS = 6;
-const SLIPPAGE_BPS = 50; // 0.5%
+import { useAmmData, type AmmPool } from "@/hooks/useAmmData";
+import { useAmmIndexedData, type ChartRange } from "@/hooks/useAmmIndexedData";
+import { SubmitProjectModal } from "@/components/SubmitProjectModal";
+import { useWallet } from "@/hooks/useWallet";
 
 /* ─── helpers ─── */
 const fmtUSD   = (n: number) => n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M` : n >= 1_000 ? `$${(n / 1_000).toFixed(1)}K` : `$${n.toFixed(2)}`;
 const fmtToken = (n: number) => n >= 1_000 ? `${(n / 1_000).toFixed(2)}K` : n.toFixed(4);
-const toNum    = (v: bigint | undefined, dec = USDC_DECIMALS) => v ? Number(formatUnits(v, dec)) : 0;
-
-function calcOut(amountIn: number, reserveIn: number, reserveOut: number, feeBps: number) {
-  const inAfterFee = amountIn * (1 - feeBps / 10_000);
-  return (inAfterFee * reserveOut) / (reserveIn + inAfterFee);
-}
-
-/* ─── pool type ─── */
-interface Pool {
-  id: number;
-  symbol: string;
-  poolUsdc: number;
-  poolCommit: number;
-  price: number;
-  seeded: boolean;
-}
+const SLIPPAGE_BPS = 50;
+const fmtTime = (ts: number) =>
+  new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
 /* ─── project selector ─── */
 function ProjectSelector({
   pools, selectedId, onSelect, search, onSearchChange,
 }: {
-  pools: Pool[]; selectedId: number;
+  pools: AmmPool[]; selectedId: number;
   onSelect: (id: number) => void;
   search: string; onSearchChange: (v: string) => void;
 }) {
@@ -143,176 +123,56 @@ function PoolStat({ label, value, sub, icon }: { label: string; value: string; s
 /* ─── main ─── */
 export default function AMM() {
   const dispatch = useAppDispatch();
+  const { role } = useWallet();
   const selectedProjectId = useAppSelector((s) => s.amm.selectedProjectId);
   const direction         = useAppSelector((s) => s.amm.direction);
   const inputVal          = useAppSelector((s) => s.amm.inputVal);
   const search            = useAppSelector((s) => s.amm.search);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
 
-  const { address, isConnected } = useAccount();
-  const { writeContract, data: writeTxHash, isPending: isWriting, error: writeError } = useWriteContract();
-  const { isLoading: isTxPending, isSuccess: isTxSuccess } = useWaitForTransactionReceipt({ hash: writeTxHash });
+  /* ── contract data & actions ── */
+  const {
+    pools, pool, feeBps,
+    usdcBal, commitBal,
+    outputNum, minReceived, impact,
+    isWriting, isTxPending, isTxSuccess,
+    writeError, isConnected,
+    needsUsdcApproval, needsCommitApproval,
+    swap: handleSwap,
+  } = useAmmData(selectedProjectId, direction, inputVal);
+  const [chartRange, setChartRange] = useState<ChartRange>("1D");
+  const { chartPoints, recentTrades, loading: indexedLoading, error: indexedError } =
+    useAmmIndexedData(pool?.id ?? selectedProjectId, chartRange);
 
-  /* ── read project count ── */
-  const { data: projectCount } = useReadContract({
-    address: CONTRACTS.VAULT,
-    abi: VAULT_ABI,
-    functionName: "projectCount",
-  });
+  const chartPath = useMemo(() => {
+    if (chartPoints.length < 2) return "";
+    const min = Math.min(...chartPoints.map((p) => p.close));
+    const max = Math.max(...chartPoints.map((p) => p.close));
+    const range = Math.max(max - min, 0.000001);
+    return chartPoints
+      .map((p, i) => {
+        const x = (i / (chartPoints.length - 1)) * 600;
+        const y = 120 - ((p.close - min) / range) * 90;
+        return `${i === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
+      })
+      .join(" ");
+  }, [chartPoints]);
 
-  const count = projectCount ? Number(projectCount) : 0;
-
-  /* ── batch read pool data ── */
-  const poolCalls = useMemo(() =>
-    Array.from({ length: count }, (_, i) => {
-      const pid = BigInt(i + 1);
-      return [
-        { address: CONTRACTS.AMM as `0x${string}`, abi: AMM_ABI, functionName: "poolUsdc"   as const, args: [pid] },
-        { address: CONTRACTS.AMM as `0x${string}`, abi: AMM_ABI, functionName: "poolCommit" as const, args: [pid] },
-        { address: CONTRACTS.AMM as `0x${string}`, abi: AMM_ABI, functionName: "seeded"     as const, args: [pid] },
-      ];
-    }).flat(),
-    [count]
-  );
-
-  const { data: poolData } = useReadContracts({ contracts: poolCalls });
-
-  /* ── fee ── */
-  const { data: feeBpsRaw } = useReadContract({
-    address: CONTRACTS.AMM as `0x${string}`,
-    abi: AMM_ABI,
-    functionName: "feeBps",
-  });
-  const feeBps = feeBpsRaw ? Number(feeBpsRaw) : 30;
-
-  /* ── build pools list ── */
-  const pools: Pool[] = useMemo(() => {
-    if (!poolData) return [];
-    return Array.from({ length: count }, (_, i) => {
-      const base      = i * 3;
-      const pUsdc     = poolData[base]?.result     as bigint | undefined;
-      const pCommit   = poolData[base + 1]?.result as bigint | undefined;
-      const isSeeded  = poolData[base + 2]?.result as boolean | undefined;
-      const usdcNum   = toNum(pUsdc);
-      const commitNum = toNum(pCommit);
-      const price     = commitNum > 0 ? usdcNum / commitNum : 0;
-      return {
-        id:         i + 1,
-        symbol:     `NST-${i + 1}`,
-        poolUsdc:   usdcNum,
-        poolCommit: commitNum,
-        price,
-        seeded:     isSeeded ?? false,
-      };
-    }).filter((p) => p.seeded);
-  }, [poolData, count]);
-
-  const pool = pools.find((p) => p.id === selectedProjectId) ?? pools[0];
-
-  /* ── user balances ── */
-  const { data: usdcBalance } = useReadContract({
-    address: CONTRACTS.USDC,
-    abi: ERC20_ABI,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address },
-  });
-
-  const { data: commitBalance } = useReadContract({
-    address: CONTRACTS.COMMIT,
-    abi: ERC1155_ABI,
-    functionName: "balanceOf",
-    args: address && pool ? [address, BigInt(pool.id)] : undefined,
-    query: { enabled: !!address && !!pool },
-  });
-
-  /* ── allowances ── */
-  const { data: usdcAllowance } = useReadContract({
-    address: CONTRACTS.USDC,
-    abi: ERC20_ABI,
-    functionName: "allowance",
-    args: address ? [address, CONTRACTS.AMM as `0x${string}`] : undefined,
-    query: { enabled: !!address },
-  });
-
-  const { data: isCommitApproved } = useReadContract({
-    address: CONTRACTS.COMMIT,
-    abi: ERC1155_ABI,
-    functionName: "isApprovedForAll",
-    args: address ? [address, CONTRACTS.AMM as `0x${string}`] : undefined,
-    query: { enabled: !!address },
-  });
-
-  /* ── swap math ── */
-  const inputNum  = parseFloat(inputVal) || 0;
-  const reserveIn  = pool ? (direction === "buy" ? pool.poolUsdc   : pool.poolCommit) : 0;
-  const reserveOut = pool ? (direction === "buy" ? pool.poolCommit : pool.poolUsdc)   : 0;
-  const outputNum  = inputNum > 0 ? calcOut(inputNum, reserveIn, reserveOut, feeBps) : 0;
-  const minReceived = outputNum * (1 - SLIPPAGE_BPS / 10_000);
-  const impact      = inputNum > 0 ? (inputNum / (reserveIn + inputNum)) * 100 : 0;
+  const inputNum    = parseFloat(inputVal) || 0;
   const impactColor = impact < 1 ? "text-green-400" : impact < 3 ? "text-yellow-400" : "text-red-400";
-
-  const usdcBal   = toNum(usdcBalance);
-  const commitBal = toNum(commitBalance);
-  const fromLabel = direction === "buy" ? "USDC" : (pool?.symbol ?? "NST");
-  const toLabel   = direction === "buy" ? (pool?.symbol ?? "NST") : "USDC";
+  const fromLabel   = direction === "buy" ? "USDC" : (pool?.symbol ?? "NST");
+  const toLabel     = direction === "buy" ? (pool?.symbol ?? "NST") : "USDC";
   const userBalance = direction === "buy" ? usdcBal : commitBal;
-
-  /* ── swap handler ── */
-  async function handleSwap() {
-    if (!pool || inputNum <= 0) return;
-
-    const amountIn  = parseUnits(inputVal, USDC_DECIMALS);
-    const minOut    = parseUnits(minReceived.toFixed(USDC_DECIMALS), USDC_DECIMALS);
-    const projectId = BigInt(pool.id);
-
-    if (direction === "buy") {
-      // approve USDC if needed
-      if (!usdcAllowance || usdcAllowance < amountIn) {
-        writeContract({
-          address: CONTRACTS.USDC,
-          abi: ERC20_ABI,
-          functionName: "approve",
-          args: [CONTRACTS.AMM as `0x${string}`, amountIn],
-        });
-        return; // user will click again after approval
-      }
-      writeContract({
-        address: CONTRACTS.AMM as `0x${string}`,
-        abi: AMM_ABI,
-        functionName: "swapUsdcForCommit",
-        args: [projectId, amountIn, minOut],
-      });
-    } else {
-      // approve commit ERC1155 if needed
-      if (!isCommitApproved) {
-        writeContract({
-          address: CONTRACTS.COMMIT,
-          abi: ERC1155_ABI,
-          functionName: "setApprovalForAll",
-          args: [CONTRACTS.AMM as `0x${string}`, true],
-        });
-        return; // user will click again after approval
-      }
-      writeContract({
-        address: CONTRACTS.AMM as `0x${string}`,
-        abi: AMM_ABI,
-        functionName: "swapCommitForUsdc",
-        args: [projectId, amountIn, minOut],
-      });
-    }
-  }
 
   /* ── button label ── */
   function swapButtonLabel() {
-    if (!isConnected)           return "Connect wallet to swap";
-    if (!pool)                  return "No pools available";
-    if (inputNum <= 0)          return "Enter an amount";
+    if (!isConnected)             return "Connect wallet to swap";
+    if (!pool)                    return "No pools available";
+    if (inputNum <= 0)            return "Enter an amount";
     if (isTxPending || isWriting) return "Confirming…";
-    if (isTxSuccess)            return "Swap successful!";
-    if (direction === "buy" && (!usdcAllowance || usdcAllowance < parseUnits(inputVal || "0", USDC_DECIMALS)))
-                                return "Approve USDC";
-    if (direction === "sell" && !isCommitApproved)
-                                return "Approve CommitToken";
+    if (isTxSuccess)              return "Swap successful!";
+    if (needsUsdcApproval)        return "Approve USDC";
+    if (needsCommitApproval)      return "Approve CommitToken";
     return <>{`Swap ${fromLabel}`} <ArrowRight className="w-4 h-4" /> {toLabel}</>;
   }
 
@@ -330,6 +190,7 @@ export default function AMM() {
           </Link>
           <div className="hidden md:flex items-center gap-1 ml-4 text-xs text-muted-foreground">
             {[
+              ...(role === "admin" ? [{ label: "Admin Dashboard", href: "/dashboard" }] : []),
               { label: "Markets",  href: "/" },
               { label: "AMM Swap", href: "/amm" },
               { label: "Portfolio",href: "/portfolio" },
@@ -343,7 +204,11 @@ export default function AMM() {
             ))}
           </div>
           <div className="flex items-center gap-2 ml-auto">
-            <Button size="sm" className="h-8 px-3 text-xs gap-1.5 hidden sm:flex">
+            <Button
+              size="sm"
+              className="h-8 px-3 text-xs gap-1.5 hidden sm:flex"
+              onClick={() => setShowSubmitModal(true)}
+            >
               <Plus className="w-3.5 h-3.5" /> List Project
             </Button>
             <ConnectButton accountStatus="avatar" showBalance={false} />
@@ -533,14 +398,20 @@ export default function AMM() {
                 </Card>
               )}
 
-              {/* chart placeholder */}
+              {/* chart */}
               <Card className="bg-card border-border">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-sm font-semibold">{pool?.symbol ?? "—"}/USDC</p>
                     <div className="flex items-center gap-1">
-                      {["1H", "6H", "1D", "1W"].map((t) => (
-                        <button key={t} className={`text-[10px] px-2 py-1 rounded transition-colors font-mono ${t === "1D" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>{t}</button>
+                      {(["1H", "6H", "1D", "1W"] as const).map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => setChartRange(t)}
+                          className={`text-[10px] px-2 py-1 rounded transition-colors font-mono ${t === chartRange ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                        >
+                          {t}
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -552,21 +423,58 @@ export default function AMM() {
                           <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0" />
                         </linearGradient>
                       </defs>
-                      <path d="M0,100 C30,95 60,85 90,80 C120,75 140,88 170,82 C200,76 220,60 250,55 C280,50 300,65 330,58 C360,51 380,40 410,35 C440,30 470,42 500,38 C530,34 560,28 600,25" fill="none" stroke="hsl(var(--primary))" strokeWidth="2" />
-                      <path d="M0,100 C30,95 60,85 90,80 C120,75 140,88 170,82 C200,76 220,60 250,55 C280,50 300,65 330,58 C360,51 380,40 410,35 C440,30 470,42 500,38 C530,34 560,28 600,25 L600,140 L0,140 Z" fill="url(#chartGrad)" />
+                      {chartPath ? (
+                        <>
+                          <path d={chartPath} fill="none" stroke="hsl(var(--primary))" strokeWidth="2" />
+                          <path d={`${chartPath} L600,140 L0,140 Z`} fill="url(#chartGrad)" />
+                        </>
+                      ) : (
+                        <line x1="0" y1="100" x2="600" y2="100" stroke="hsl(var(--border))" strokeWidth="1" />
+                      )}
                     </svg>
                   </div>
-                  <p className="text-center text-[10px] text-muted-foreground mt-2">Price chart coming soon</p>
+                  <p className="text-center text-[10px] text-muted-foreground mt-2">
+                    {indexedLoading
+                      ? "Loading indexed price data..."
+                      : indexedError
+                      ? "Subgraph unavailable. Showing fallback state."
+                      : chartPoints.length === 0
+                      ? "No indexed price data yet for this range."
+                      : `${chartPoints.length} data point${chartPoints.length !== 1 ? "s" : ""}`}
+                  </p>
                 </CardContent>
               </Card>
 
-              {/* recent trades placeholder */}
+              {/* recent trades */}
               <Card className="bg-card border-border">
                 <CardContent className="p-4">
                   <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider flex items-center gap-1.5 mb-3">
                     <Clock className="w-3.5 h-3.5" /> Recent Trades
                   </p>
-                  <p className="text-center text-xs text-muted-foreground py-6">Trade history requires an indexer.</p>
+                  {indexedLoading ? (
+                    <p className="text-center text-xs text-muted-foreground py-6">Loading indexed trades...</p>
+                  ) : recentTrades.length === 0 ? (
+                    <p className="text-center text-xs text-muted-foreground py-6">No indexed trades yet.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {recentTrades.slice(0, 8).map((t) => (
+                        <div
+                          key={t.id}
+                          className="grid grid-cols-12 gap-2 items-center px-2 py-1.5 rounded bg-secondary/40 text-[11px]"
+                        >
+                          <span className={`col-span-2 font-semibold ${t.side === "BUY" ? "text-green-400" : "text-yellow-400"}`}>
+                            {t.side}
+                          </span>
+                          <span className="col-span-4 font-mono truncate text-muted-foreground">
+                            {t.user.slice(0, 6)}...{t.user.slice(-4)}
+                          </span>
+                          <span className="col-span-3 text-right font-mono">{fmtToken(t.commitAmount)}</span>
+                          <span className="col-span-2 text-right font-mono">{fmtUSD(t.price)}</span>
+                          <span className="col-span-1 text-right text-muted-foreground">{fmtTime(t.timestamp)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -605,6 +513,7 @@ export default function AMM() {
           </span>
         </div>
       </footer>
+      <SubmitProjectModal open={showSubmitModal} onClose={() => setShowSubmitModal(false)} />
     </div>
   );
 }

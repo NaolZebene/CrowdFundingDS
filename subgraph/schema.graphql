@@ -1,0 +1,135 @@
+type Project @entity(immutable: false) {
+  id: ID!
+  projectId: BigInt!
+  founder: Bytes!
+  treasury: Bytes!
+  milestoneCount: BigInt!
+  name: String!
+  description: String!
+  additionalFilesUrl: String!
+  metadataUri: String!
+  totalRaised: BigInt!
+  totalReleased: BigInt!
+  currentMilestone: BigInt!
+  approved: Boolean!
+  createdAt: BigInt!
+  createdAtBlock: BigInt!
+  updatedAt: BigInt!
+  updatedAtBlock: BigInt!
+  pool: Pool
+  investments: [Investment!]! @derivedFrom(field: "project")
+  swaps: [Swap!]! @derivedFrom(field: "project")
+  vetoVotes: [VetoVote!]! @derivedFrom(field: "project")
+}
+
+type Pool @entity(immutable: false) {
+  id: ID!
+  project: Project!
+  projectId: BigInt!
+  reserveUsdc: BigInt!
+  reserveCommit: BigInt!
+  seeded: Boolean!
+  feeBps: BigInt!
+  lastPrice: BigDecimal!
+  volumeUsdc: BigDecimal!
+  volumeCommit: BigDecimal!
+  swapCount: BigInt!
+  updatedAt: BigInt!
+  updatedAtBlock: BigInt!
+  swaps: [Swap!]! @derivedFrom(field: "pool")
+  hourData: [PoolHourData!]! @derivedFrom(field: "pool")
+  dayData: [PoolDayData!]! @derivedFrom(field: "pool")
+}
+
+type PoolHourData @entity(immutable: false) {
+  id: ID!
+  pool: Pool!
+  projectId: BigInt!
+  periodStartUnix: Int!
+  open: BigDecimal!
+  high: BigDecimal!
+  low: BigDecimal!
+  close: BigDecimal!
+  volumeUsdc: BigDecimal!
+  volumeCommit: BigDecimal!
+  txCount: BigInt!
+}
+
+type PoolDayData @entity(immutable: false) {
+  id: ID!
+  pool: Pool!
+  projectId: BigInt!
+  periodStartUnix: Int!
+  open: BigDecimal!
+  high: BigDecimal!
+  low: BigDecimal!
+  close: BigDecimal!
+  volumeUsdc: BigDecimal!
+  volumeCommit: BigDecimal!
+  txCount: BigInt!
+}
+
+type Swap @entity(immutable: true) {
+  id: ID!
+  txHash: Bytes!
+  logIndex: BigInt!
+  project: Project!
+  pool: Pool!
+  projectId: BigInt!
+  user: Bytes!
+  tokenIn: Bytes!
+  tokenOut: Bytes!
+  amountIn: BigInt!
+  amountOut: BigInt!
+  amountInUsdc: BigDecimal!
+  amountOutUsdc: BigDecimal!
+  priceUsdcPerCommit: BigDecimal!
+  side: String!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type Investment @entity(immutable: true) {
+  id: ID!
+  txHash: Bytes!
+  logIndex: BigInt!
+  project: Project!
+  projectId: BigInt!
+  investor: Bytes!
+  amount: BigInt!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type YieldClaim @entity(immutable: true) {
+  id: ID!
+  txHash: Bytes!
+  logIndex: BigInt!
+  user: Bytes!
+  amount: BigInt!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type VetoVote @entity(immutable: true) {
+  id: ID!
+  txHash: Bytes!
+  logIndex: BigInt!
+  project: Project!
+  projectId: BigInt!
+  voter: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type ProjectUser @entity(immutable: false) {
+  id: ID!
+  project: Project!
+  projectId: BigInt!
+  user: Bytes!
+  investedUsdc: BigInt!
+  claimedYieldUsdc: BigInt!
+  hasVotedVeto: Boolean!
+  firstSeenAt: BigInt!
+  lastSeenAt: BigInt!
+}

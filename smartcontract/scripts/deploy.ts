@@ -1,11 +1,5 @@
 import { network } from "hardhat";
 
-function requiredEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required environment variable: ${name}`);
-  return v;
-}
-
 async function main() {
   const { ethers, networkName } = await network.connect();
   console.log("Network:", networkName);
@@ -14,11 +8,6 @@ async function main() {
   const deployerAddr = await deployer.getAddress();
   console.log("Deployer:", deployerAddr);
 
-  const owner2 = requiredEnv("OWNER2");
-  const owner3 = requiredEnv("OWNER3");
-  console.log("Multisig owner2:", owner2);
-  console.log("Multisig owner3:", owner3);
-
   // 1) MockUSDC
   const MockUSDC = await ethers.getContractFactory("MockUSDC");
   const usdc = await MockUSDC.deploy();
@@ -26,13 +15,10 @@ async function main() {
   const USDC = await usdc.getAddress();
   console.log("MockUSDC:", USDC);
 
-  // 2) TreasuryMultiSigV2 (2-of-3)
-  const TreasuryV2 = await ethers.getContractFactory("TreasuryMultiSigV2");
-  const owners = [deployerAddr, owner2, owner3];
-  const treasury = await TreasuryV2.deploy(owners, 2);
-  await treasury.waitForDeployment();
-  const TREASURY = await treasury.getAddress();
-  console.log("TreasuryMultiSigV2:", TREASURY);
+  // 2) Treasury recipient (single-owner wallet)
+  // Use the deployer EOA directly so OWNER2/OWNER3 are not required.
+  const TREASURY = deployerAddr;
+  console.log("Treasury (EOA):", TREASURY);
 
   // 3) CommitmentToken
   const CommitmentToken = await ethers.getContractFactory("CommitmentToken");
@@ -100,6 +86,9 @@ async function main() {
   const tx = await vault.createProject(
     TREASURY,   // treasury
     3,          // milestoneCount
+    "Demo Project",
+    "Demo on-chain project description",
+    "https://example.com/files",
     "ipfs://demo-project-metadata",
     10_000n * 1_000_000n, // fundingGoal: 10,000 USDC
     fundingDeadline
