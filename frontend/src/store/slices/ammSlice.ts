@@ -25,6 +25,10 @@ const ammSlice = createSlice({
       state.direction = state.direction === "buy" ? "sell" : "buy";
       state.inputVal = "";
     },
+    setDirection(state, action: PayloadAction<"buy" | "sell">) {
+      state.direction = action.payload;
+      state.inputVal = "";
+    },
     setInputVal(state, action: PayloadAction<string>) {
       state.inputVal = action.payload;
     },
@@ -35,5 +39,5 @@ const ammSlice = createSlice({
   initialState,
 });
 
-export const { selectProject, flipDirection, setInputVal, setSearch } = ammSlice.actions;
+export const { selectProject, flipDirection, setDirection, setInputVal, setSearch } = ammSlice.actions;
 export default ammSlice.reducer;

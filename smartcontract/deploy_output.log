@@ -1,0 +1,48 @@
+
+Network: sepolia
+Deployer: 0x790cc683ba783866C16E349334A8f5A9fdaF1C22
+USDC (Sepolia): 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238
+Treasury: 0x790cc683ba783866C16E349334A8f5A9fdaF1C22
+MockLender: 0x6558aDa30eBFb8d8bF95BAE17BD7E54802B5Ac08
+MockZKVerifier: 0xF3Ddb4A566E5929DB4b063b5f9dD4754baC12156
+Deployer KYC approved in MockZKVerifier
+WorldIDVerifierAdapter: 0x32b14e1Abb8303483EF2547E54796e58C066A3B5
+  app_id: app_crowdfundingds_staging | action_id: invest
+CommitmentToken: 0x71f28e1990bd015a1F6A8077DA8C579b0659264C
+CrowdVault: 0x39F912f15E8A7D4e0DC346fAeAcb3329fDf41384
+RevenueRouter: 0x16A1f9ADb150CFe3ED3d2F60FF8a6539D9D1f764
+CommitmentAMM: 0xbBE5f6A2F9aE9EDecF73bc872fbD350767C8b16a
+AutoBuyer: 0xBB4E2AE3e2B23a9EBE54B90Ee7E4f7Cb55F2Dc06
+All modules wired
+Deployer USDC balance: 101.776064
+Project 1 created: GreenGrid Energy (open funding, invest flow)
+Project 2 created: AquaPure Filter (pending approval, dashboard flow)
+Project 3 created & funded: NovaMed Diagnostics (AMM trading flow) — AMM will seed after deadline
+Project 4 created & funded: EduChain Academy (veto flow) — milestone 2 release request open
+Project 5 created & funded: SolarDAO Grid (yield farming flow) — principal in lender
+Project 6 created: UrbanFarm Co-op (refund flow) — 60-second deadline, goal unreachable
+Project 7 created: OpenDocs Protocol (no-goal flow, 4 milestones)
+
+=== TEST PROJECT SUMMARY ===
+Project 1 — GreenGrid Energy       : Open funding, invest flow
+Project 2 — AquaPure Filter         : Pending admin approval (Dashboard)
+Project 3 — NovaMed Diagnostics     : AMM trading (funded + pool seeded)
+Project 4 — EduChain Academy        : Veto flow (release request open)
+Project 5 — SolarDAO Grid           : Yield farming (run seed:yield next)
+Project 6 — UrbanFarm Co-op         : Refund flow (60-sec deadline)
+Project 7 — OpenDocs Protocol       : No-goal project, 4 milestones
+
+=== DEPLOYED ADDRESSES ===
+{
+  USDC: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+  TREASURY: '0x790cc683ba783866C16E349334A8f5A9fdaF1C22',
+  COMMIT: '0x71f28e1990bd015a1F6A8077DA8C579b0659264C',
+  LENDER: '0x6558aDa30eBFb8d8bF95BAE17BD7E54802B5Ac08',
+  ZKVER: '0xF3Ddb4A566E5929DB4b063b5f9dD4754baC12156',
+  WORLDID_VERIFIER: '0x32b14e1Abb8303483EF2547E54796e58C066A3B5',
+  VAULT: '0x39F912f15E8A7D4e0DC346fAeAcb3329fDf41384',
+  ROUTER: '0x16A1f9ADb150CFe3ED3d2F60FF8a6539D9D1f764',
+  AMM_ADDR: '0xbBE5f6A2F9aE9EDecF73bc872fbD350767C8b16a',
+  AUTOBUYER: '0xBB4E2AE3e2B23a9EBE54B90Ee7E4f7Cb55F2Dc06'
+}
+Address files updated (smartcontract, frontend, subgraph)

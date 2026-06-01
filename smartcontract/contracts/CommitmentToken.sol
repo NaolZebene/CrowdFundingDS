@@ -14,6 +14,7 @@ contract CommitmentToken is ERC1155 {
     mapping(uint256 => uint256) public totalSupplyByProject;
 
     event Mint(uint256 indexed projectId, address indexed to, uint256 value);
+    event Burn(uint256 indexed projectId, address indexed from, uint256 value);
     event MinterChanged(address indexed oldMinter, address indexed newMinter);
 
     modifier onlyMinter() {
@@ -49,5 +50,16 @@ contract CommitmentToken is ERC1155 {
         totalSupplyByProject[projectId] += amount;
         _mint(to, projectId, amount, "");
         emit Mint(projectId, to, amount);
+    }
+
+    /// @notice Burn `amount` of project-`projectId` tokens from `from`. Only callable by minter (CrowdVault).
+    function burn(
+        uint256 projectId,
+        address from,
+        uint256 amount
+    ) external onlyMinter {
+        totalSupplyByProject[projectId] -= amount;
+        _burn(from, projectId, amount);
+        emit Burn(projectId, from, amount);
     }
 }

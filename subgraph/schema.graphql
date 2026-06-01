@@ -30,15 +30,55 @@ type Pool @entity(immutable: false) {
   reserveCommit: BigInt!
   seeded: Boolean!
   feeBps: BigInt!
+  spotPriceUsdcPerCommit: BigDecimal!
   lastPrice: BigDecimal!
   volumeUsdc: BigDecimal!
   volumeCommit: BigDecimal!
   swapCount: BigInt!
+  seedCount: BigInt!
+  firstSeededAt: BigInt!
+  latestSeededAt: BigInt!
   updatedAt: BigInt!
   updatedAtBlock: BigInt!
+  seeds: [PoolSeed!]! @derivedFrom(field: "pool")
+  transactions: [AmmTransaction!]! @derivedFrom(field: "pool")
   swaps: [Swap!]! @derivedFrom(field: "pool")
   hourData: [PoolHourData!]! @derivedFrom(field: "pool")
   dayData: [PoolDayData!]! @derivedFrom(field: "pool")
+}
+
+type PoolSeed @entity(immutable: true) {
+  id: ID!
+  txHash: Bytes!
+  logIndex: BigInt!
+  project: Project!
+  pool: Pool!
+  projectId: BigInt!
+  usdcIn: BigInt!
+  commitIn: BigInt!
+  priceUsdcPerCommit: BigDecimal!
+  reserveUsdcAfter: BigInt!
+  reserveCommitAfter: BigInt!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type AmmTransaction @entity(immutable: true) {
+  id: ID!
+  txHash: Bytes!
+  logIndex: BigInt!
+  project: Project!
+  pool: Pool!
+  projectId: BigInt!
+  kind: String!
+  user: Bytes!
+  amountUsdc: BigInt!
+  amountCommit: BigInt!
+  priceUsdcPerCommit: BigDecimal!
+  reserveUsdcAfter: BigInt!
+  reserveCommitAfter: BigInt!
+  timestamp: BigInt!
+  blockNumber: BigInt!
 }
 
 type PoolHourData @entity(immutable: false) {
@@ -84,6 +124,9 @@ type Swap @entity(immutable: true) {
   amountInUsdc: BigDecimal!
   amountOutUsdc: BigDecimal!
   priceUsdcPerCommit: BigDecimal!
+  reserveUsdcAfter: BigInt!
+  reserveCommitAfter: BigInt!
+  spotPriceUsdcPerCommitAfter: BigDecimal!
   side: String!
   timestamp: BigInt!
   blockNumber: BigInt!

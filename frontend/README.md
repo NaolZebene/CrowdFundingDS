@@ -8,6 +8,14 @@ RainbowKit requires a WalletConnect Cloud project ID.
 2. Set `VITE_WALLETCONNECT_PROJECT_ID` with your WalletConnect Cloud project ID.
 3. Set `VITE_SUBGRAPH_URL` with your GraphQL endpoint for the CrowdVault subgraph.
 
+## Funding on Sepolia
+
+Project funding uses real Sepolia USDC at `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`. Testers need both Sepolia ETH for gas and Sepolia USDC for the investment amount; Sepolia ETH alone cannot fund a project.
+
+## Real module wiring
+
+The frontend reads the deployed `CrowdVault`, `CommitmentAMM`, `RevenueRouter`, lender, oracle, and ZK verifier addresses from `src/config/contracts.ts`. For Sepolia, make sure the vault's on-chain `lender`, `oracle`, and approved ZK verifier match those configured addresses. The admin dashboard shows mismatches and includes buttons to connect the configured modules.
+
 Example:
 
 ```bash

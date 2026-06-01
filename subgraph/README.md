@@ -19,7 +19,7 @@ npm run build
 
 ```bash
 cd subgraph
-graph auth --studio <DEPLOY_KEY>
+graph auth <DEPLOY_KEY>
 npm run deploy:studio
 ```
 

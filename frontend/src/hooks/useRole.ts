@@ -1,5 +1,5 @@
 import { useAccount, useReadContract } from "wagmi";
-import { VAULT_ABI } from "@/config/abis";
+import { AMM_ABI, VAULT_ABI } from "@/config/abis";
 import { CONTRACTS } from "@/config/contracts";
 
 export type AppRole = "guest" | "user" | "admin";
@@ -7,8 +7,11 @@ export type AppRole = "guest" | "user" | "admin";
 export function useRole() {
   const { address, isConnected } = useAccount();
   const normalizedAddress = address?.toLowerCase();
+  const isConfiguredAdmin =
+    !!normalizedAddress &&
+    normalizedAddress === CONTRACTS.TREASURY.toLowerCase();
 
-  const adminCheck = useReadContract({
+  const vaultAdminCheck = useReadContract({
     address: CONTRACTS.VAULT,
     abi: VAULT_ABI,
     functionName: "isAdmin",
@@ -17,28 +20,58 @@ export function useRole() {
   });
 
   // Secondary check to avoid false "user" role if isAdmin() read is briefly stale/error.
-  const adminAddressCheck = useReadContract({
+  const vaultAdminAddressCheck = useReadContract({
     address: CONTRACTS.VAULT,
     abi: VAULT_ABI,
     functionName: "admin",
     query: { enabled: !!address && isConnected },
   });
 
-  const isAdminByFlag =
-    typeof adminCheck.data === "boolean" ? adminCheck.data : false;
-  const isAdminByAddress =
-    !!normalizedAddress &&
-    typeof adminAddressCheck.data === "string" &&
-    adminAddressCheck.data.toLowerCase() === normalizedAddress;
+  const ammAdminCheck = useReadContract({
+    address: CONTRACTS.AMM,
+    abi: AMM_ABI,
+    functionName: "isAdmin",
+    args: address ? [address] : undefined,
+    query: { enabled: !!address && isConnected },
+  });
 
-  const isAdmin = isAdminByFlag || isAdminByAddress;
+  const ammAdminAddressCheck = useReadContract({
+    address: CONTRACTS.AMM,
+    abi: AMM_ABI,
+    functionName: "admin",
+    query: { enabled: !!address && isConnected },
+  });
+
+  const isVaultAdminByFlag =
+    typeof vaultAdminCheck.data === "boolean" ? vaultAdminCheck.data : false;
+  const isVaultAdminByAddress =
+    !!normalizedAddress &&
+    typeof vaultAdminAddressCheck.data === "string" &&
+    vaultAdminAddressCheck.data.toLowerCase() === normalizedAddress;
+  const isAmmAdminByFlag =
+    typeof ammAdminCheck.data === "boolean" ? ammAdminCheck.data : false;
+  const isAmmAdminByAddress =
+    !!normalizedAddress &&
+    typeof ammAdminAddressCheck.data === "string" &&
+    ammAdminAddressCheck.data.toLowerCase() === normalizedAddress;
+
+  const isAdmin =
+    isConfiguredAdmin ||
+    isVaultAdminByFlag ||
+    isVaultAdminByAddress ||
+    isAmmAdminByFlag ||
+    isAmmAdminByAddress;
 
   const connected = Boolean(isConnected && address);
   const checksSettled = Boolean(
-    (typeof adminCheck.data === "boolean" || adminCheck.isError) &&
-      (typeof adminAddressCheck.data === "string" || adminAddressCheck.isError),
+    (typeof vaultAdminCheck.data === "boolean" || vaultAdminCheck.isError) &&
+      (typeof vaultAdminAddressCheck.data === "string" ||
+        vaultAdminAddressCheck.isError) &&
+      (typeof ammAdminCheck.data === "boolean" || ammAdminCheck.isError) &&
+      (typeof ammAdminAddressCheck.data === "string" ||
+        ammAdminAddressCheck.isError),
   );
-  const isRoleLoading = Boolean(connected && !checksSettled);
+  const isRoleLoading = Boolean(connected && !isConfiguredAdmin && !checksSettled);
 
   const role: AppRole = !connected ? "guest" : isAdmin ? "admin" : "user";
 

@@ -1,15 +1,18 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   useAccount,
   useReadContract,
   useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
+import { simulateContract } from "@wagmi/core";
 import { parseUnits } from "viem";
 import { CONTRACTS } from "@/config/contracts";
 import { ERC20_ABI, VAULT_ABI } from "@/config/abis";
+import { config as wagmiConfig } from "@/config/wagmi";
 
 const USDC_DECIMALS = 6;
+const CREATE_PROJECT_GAS_LIMIT = 1_500_000n;
 
 export interface SubmitProjectInput {
   treasury: `0x${string}`;
@@ -20,10 +23,12 @@ export interface SubmitProjectInput {
   metadataUri: string;
   fundingGoalUsdc: string;
   fundingDeadlineUnix: number;
+  milestoneWindowSecs: number;
 }
 
 export function useProjectSubmission() {
   const { address, isConnected } = useAccount();
+  const [preflightError, setPreflightError] = useState("");
 
   const { data: submissionFeeRaw } = useReadContract({
     address: CONTRACTS.VAULT,
@@ -58,8 +63,9 @@ export function useProjectSubmission() {
 
   const isSubmitting = isWriting || isTxPending;
 
-  function submitProject(input: SubmitProjectInput) {
+  async function submitProject(input: SubmitProjectInput) {
     if (!isConnected || !address) return;
+    setPreflightError("");
 
     if (needsFeeApproval) {
       writeContract({
@@ -71,20 +77,37 @@ export function useProjectSubmission() {
       return;
     }
 
+    const args = [
+      input.treasury,
+      BigInt(input.milestoneCount),
+      input.name,
+      input.description,
+      input.additionalFilesUrl,
+      input.metadataUri,
+      parseUnits(input.fundingGoalUsdc || "0", USDC_DECIMALS),
+      BigInt(input.fundingDeadlineUnix),
+      BigInt(input.milestoneWindowSecs),
+    ] as const;
+
+    try {
+      await simulateContract(wagmiConfig, {
+        account: address,
+        address: CONTRACTS.VAULT,
+        abi: VAULT_ABI,
+        functionName: "createProject",
+        args,
+      });
+    } catch (error) {
+      setPreflightError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+
     writeContract({
       address: CONTRACTS.VAULT,
       abi: VAULT_ABI,
       functionName: "createProject",
-      args: [
-        input.treasury,
-        BigInt(input.milestoneCount),
-        input.name,
-        input.description,
-        input.additionalFilesUrl,
-        input.metadataUri,
-        parseUnits(input.fundingGoalUsdc || "0", USDC_DECIMALS),
-        BigInt(input.fundingDeadlineUnix),
-      ],
+      args,
+      gas: CREATE_PROJECT_GAS_LIMIT,
     });
   }
 
@@ -101,6 +124,7 @@ export function useProjectSubmission() {
     isSubmitting,
     isTxSuccess,
     writeError,
+    preflightError,
     submitProject,
   };
 }

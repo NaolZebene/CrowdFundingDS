@@ -9,6 +9,11 @@ interface SubmitProjectModalProps {
   onClose: () => void;
 }
 
+function formatLocalDateTime(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
   const { address, isConnected } = useAccount();
   const {
@@ -17,6 +22,7 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
     isSubmitting,
     isTxSuccess,
     writeError,
+    preflightError,
     submitProject,
   } = useProjectSubmission();
 
@@ -28,6 +34,7 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
   const [additionalFilesUrl, setAdditionalFilesUrl] = useState("");
   const [fundingGoalUsdc, setFundingGoalUsdc] = useState("");
   const [deadline, setDeadline] = useState("");
+  const [milestoneWindowDays, setMilestoneWindowDays] = useState("60");
 
   useEffect(() => {
     if (open && address && !treasury) setTreasury(address);
@@ -40,8 +47,8 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
   }, [isTxSuccess, onClose]);
 
   const now = Date.now();
-  const minDeadline = new Date(now + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
-  const maxDeadline = new Date(now + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
+  const maxDeadlineMs = now + 90 * 24 * 60 * 60 * 1000;
+  const maxDeadline = formatLocalDateTime(new Date(maxDeadlineMs));
 
   const isValid = useMemo(() => {
     if (!treasury.startsWith("0x") || treasury.length !== 42) return false;
@@ -55,9 +62,13 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
     if (deadline) {
       const ts = new Date(deadline).getTime();
       if (Number.isNaN(ts)) return false;
+      if (ts > maxDeadlineMs) return false;
     }
+    const windowDays = Number(milestoneWindowDays);
+    if (!Number.isFinite(windowDays) || windowDays < 7 || windowDays > 180) return false;
     return true;
   }, [
+    maxDeadlineMs,
     treasury,
     milestoneCount,
     fundingGoalUsdc,
@@ -65,12 +76,14 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
     projectDescription,
     offchainMetadataUri,
     deadline,
+    milestoneWindowDays,
   ]);
 
   function handleSubmit() {
     if (!isConnected || !isValid) return;
     const fundingDeadlineUnix = deadline ? Math.floor(new Date(deadline).getTime() / 1000) : 0;
     const metadataUri = offchainMetadataUri.trim();
+    const milestoneWindowSecs = Math.floor(Number(milestoneWindowDays)) * 86400;
     submitProject({
       treasury: treasury as `0x${string}`,
       milestoneCount: Math.floor(Number(milestoneCount)),
@@ -80,6 +93,7 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
       metadataUri,
       fundingGoalUsdc: fundingGoalUsdc || "0",
       fundingDeadlineUnix,
+      milestoneWindowSecs,
     });
   }
 
@@ -164,25 +178,50 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
                 step="0.000001"
                 value={fundingGoalUsdc}
                 onChange={(e) => setFundingGoalUsdc(e.target.value)}
-                placeholder="e.g. 10000"
+                placeholder="e.g. 10000 (0 = no goal)"
                 className="w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary/50"
               />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Set to 0 for flexible funding (no deadline required).
+              </p>
             </div>
           </div>
 
-          <div>
-            <label className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium block mb-1.5">
-              Funding Deadline (optional)
-            </label>
-            <input
-              type="datetime-local"
-              min={minDeadline}
-              max={maxDeadline}
-              value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
-              className="w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary/50"
-            />
-            <p className="text-[10px] text-muted-foreground mt-1">If empty, default is 30 days.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium block mb-1.5">
+                Funding Deadline (optional)
+              </label>
+              <input
+                type="datetime-local"
+                max={maxDeadline}
+                value={deadline}
+                onChange={(e) => setDeadline(e.target.value)}
+                className="w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary/50"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {fundingGoalUsdc === "0" || fundingGoalUsdc === "" 
+                  ? "Optional when goal is 0." 
+                  : "Default: 30 days if not set."}
+              </p>
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium block mb-1.5">
+                Milestone Window (days)
+              </label>
+              <input
+                type="number"
+                min={7}
+                max={180}
+                step={1}
+                value={milestoneWindowDays}
+                onChange={(e) => setMilestoneWindowDays(e.target.value)}
+                className="w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary/50"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Days to complete each milestone. Timeout opens if missed.
+              </p>
+            </div>
           </div>
 
           <div>
@@ -223,14 +262,16 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
             )}
           </div>
 
-          {writeError && (
-            <p className="text-[11px] text-red-400">{writeError.message.slice(0, 140)}</p>
+          {(preflightError || writeError) && (
+            <p className="text-[11px] text-red-400">
+              {(preflightError || writeError?.message || "").slice(0, 220)}
+            </p>
           )}
         </div>
 
         <div className="flex items-center justify-between px-5 py-4 border-t border-border">
           <p className="text-[11px] text-muted-foreground">
-            Deadline must be within 3 to 90 days if provided.
+            Deadline must be within 90 days if provided.
           </p>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onClose}>

@@ -9,12 +9,11 @@ import { Input } from "@/components/ui/input";
 import { ConnectPrompt } from "@/components/ConnectPrompt";
 import { useWallet } from "@/hooks/useWallet";
 import { useMarketsData } from "@/hooks/useMarketsData";
-import { AMM_ABI, VAULT_ABI } from "@/config/abis";
+import { AMM_ABI, ERC20_ABI, REVENUE_ROUTER_ABI, VAULT_ABI } from "@/config/abis";
 import { CONTRACTS } from "@/config/contracts";
 import { useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { formatUnits, parseUnits } from "viem";
 import {
-  Landmark,
   Shield,
   CheckCircle2,
   XCircle,
@@ -22,13 +21,22 @@ import {
   PackageCheck,
   Layers,
   KeyRound,
-  Activity,
   Loader2,
+  LayoutDashboard,
+  Eye,
+  CircleDollarSign,
+  TrendingUp,
+  Wallet,
+  BarChart3,
+  ArrowUpRight,
+  Landmark,
+  Coins,
+  PiggyBank,
 } from "lucide-react";
 
 const USDC_DECIMALS = 6;
 
-type AdminSection = "overview" | "approvals" | "vault" | "amm" | "permissions";
+type AdminSection = "overview" | "approvals" | "financials" | "revenue" | "vault" | "amm" | "permissions";
 
 const fmtUSD = (n: number) =>
   n >= 1_000_000
@@ -57,16 +65,13 @@ function DashboardShell({
   children: React.ReactNode;
 }) {
   const navLinks = navMode === "admin"
-    ? [
-        { label: "Admin Dashboard", href: "/dashboard" },
-        { label: "User View", href: "/" },
-      ]
+    ? []
     : [
         ...(showAdminShortcutInUserNav ? [{ label: "Admin Dashboard", href: "/dashboard" }] : []),
         { label: "Markets", href: "/" },
         { label: "AMM Swap", href: "/amm" },
         { label: "Portfolio", href: "/portfolio" },
-        { label: "Governance", href: "/governance" },
+        { label: "My Projects", href: "/my-projects" },
       ];
 
   return (
@@ -74,11 +79,8 @@ function DashboardShell({
       <nav className="sticky top-0 z-50 border-b border-border bg-card/95 backdrop-blur-sm">
         <div className="max-w-screen-xl mx-auto px-4 h-14 flex items-center gap-3">
           <Link href="/">
-            <div className="flex items-center gap-2 shrink-0 cursor-pointer">
-              <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center">
-                <Landmark className="w-4 h-4 text-primary-foreground" />
-              </div>
-              <span className="font-bold text-sm tracking-wide">CrowdVault</span>
+            <div className="flex items-center shrink-0 cursor-pointer">
+              <span className="font-bold text-sm tracking-wide">Raise</span>
             </div>
           </Link>
 
@@ -146,28 +148,51 @@ function AdminSidebar({
   onSection: (next: AdminSection) => void;
 }) {
   const items: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
-    { id: "overview", label: "Overview", icon: <Activity className="w-4 h-4" /> },
-    { id: "approvals", label: "Approvals", icon: <PackageCheck className="w-4 h-4" /> },
-    { id: "vault", label: "Vault Config", icon: <Settings className="w-4 h-4" /> },
-    { id: "amm", label: "AMM Config", icon: <Layers className="w-4 h-4" /> },
-    { id: "permissions", label: "Permissions", icon: <KeyRound className="w-4 h-4" /> },
+    { id: "overview",   label: "Overview",           icon: <LayoutDashboard className="w-4 h-4" /> },
+    { id: "approvals",  label: "Approvals",          icon: <PackageCheck className="w-4 h-4" /> },
+    { id: "financials", label: "Financial Overview",  icon: <BarChart3 className="w-4 h-4" /> },
+    { id: "revenue",    label: "Revenue",             icon: <CircleDollarSign className="w-4 h-4" /> },
+    { id: "vault",      label: "Vault Config",        icon: <Settings className="w-4 h-4" /> },
+    { id: "amm",        label: "AMM Config",          icon: <Layers className="w-4 h-4" /> },
+    { id: "permissions",label: "Permissions",         icon: <KeyRound className="w-4 h-4" /> },
   ];
 
   return (
-    <Card className="bg-card border-border h-fit md:sticky md:top-20">
-      <CardContent className="p-3 space-y-1">
+    <aside className="bg-card border border-border rounded-lg h-fit lg:sticky lg:top-20 lg:min-h-[calc(100vh-6.5rem)] overflow-hidden">
+      <div className="p-4 border-b border-border">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
+            <Shield className="w-4 h-4 text-primary-foreground" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold leading-none">Admin Console</p>
+            <p className="text-[11px] text-muted-foreground mt-1">Protocol controls</p>
+          </div>
+        </div>
+      </div>
+
+      <nav className="p-3 space-y-1">
         {items.map((item) => (
           <button
             key={item.id}
             onClick={() => onSection(item.id)}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded text-xs transition-colors ${section === item.id ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"}`}
+            className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-md text-xs transition-colors ${section === item.id ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"}`}
           >
             {item.icon}
             {item.label}
           </button>
         ))}
-      </CardContent>
-    </Card>
+
+        <div className="pt-2 mt-2 border-t border-border">
+          <Link href="/">
+            <button className="w-full flex items-center gap-2 px-3 py-2.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors">
+            <Eye className="w-4 h-4" />
+              User Mode
+            </button>
+          </Link>
+        </div>
+      </nav>
+    </aside>
   );
 }
 
@@ -180,8 +205,10 @@ function AdminDashboardView() {
   const [submissionFeeInput, setSubmissionFeeInput] = useState("");
   const [releaseFeeInput, setReleaseFeeInput] = useState("");
   const [revenueRouterInput, setRevenueRouterInput] = useState("");
+  const [weightUsersInput, setWeightUsersInput] = useState("");
+  const [weightValuesInput, setWeightValuesInput] = useState("");
   const [lenderInput, setLenderInput] = useState("");
-  const [oracleInput, setOracleInput] = useState("");
+  const [seedYieldInput, setSeedYieldInput] = useState("");
   const [zkInput, setZkInput] = useState("");
   const [newVaultAdminInput, setNewVaultAdminInput] = useState("");
   const [ammFeeInput, setAmmFeeInput] = useState("");
@@ -198,7 +225,18 @@ function AdminDashboardView() {
   const { data: releaseFeeBps, refetch: refetchReleaseFee } = useReadContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "releaseFeeBps" });
   const { data: revenueRouter, refetch: refetchRevenueRouter } = useReadContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "revenueRouter" });
   const { data: lender, refetch: refetchLender } = useReadContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "lender" });
-  const { data: oracle, refetch: refetchOracle } = useReadContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "oracle" });
+  const configuredZkAddress = CONTRACTS.ZKVER;
+  const connectedLender = String(lender ?? "");
+  const configuredLenderMatches = String(lender ?? "").toLowerCase() === CONTRACTS.LENDER.toLowerCase();
+  const canSeedYield = isAddressLike(connectedLender);
+  const routerConfiguredInVault = String(revenueRouter ?? "").toLowerCase() === CONTRACTS.ROUTER.toLowerCase();
+
+  const { data: routerAdmin, refetch: refetchRouterAdmin } = useReadContract({ address: CONTRACTS.ROUTER, abi: REVENUE_ROUTER_ABI, functionName: "admin" });
+  const { data: routerTreasury, refetch: refetchRouterTreasury } = useReadContract({ address: CONTRACTS.ROUTER, abi: REVENUE_ROUTER_ABI, functionName: "treasury" });
+  const { data: routerBackersBps, refetch: refetchRouterBackersBps } = useReadContract({ address: CONTRACTS.ROUTER, abi: REVENUE_ROUTER_ABI, functionName: "backersBps" });
+  const { data: routerTotalWeight, refetch: refetchRouterTotalWeight } = useReadContract({ address: CONTRACTS.ROUTER, abi: REVENUE_ROUTER_ABI, functionName: "totalWeight" });
+  const { data: routerBackersAccrued, refetch: refetchRouterBackersAccrued } = useReadContract({ address: CONTRACTS.ROUTER, abi: REVENUE_ROUTER_ABI, functionName: "totalBackersAccrued" });
+  const { data: routerUsdcBalance, refetch: refetchRouterUsdcBalance } = useReadContract({ address: CONTRACTS.USDC, abi: ERC20_ABI, functionName: "balanceOf", args: [CONTRACTS.ROUTER] });
 
   const checkedZkAddress = isAddressLike(zkInput) ? zkInput : undefined;
   const { data: isZkApproved, refetch: refetchZkStatus } = useReadContract({
@@ -208,10 +246,22 @@ function AdminDashboardView() {
     args: checkedZkAddress ? [checkedZkAddress] : undefined,
     query: { enabled: !!checkedZkAddress },
   });
+  const { data: isConfiguredZkApproved, refetch: refetchConfiguredZkStatus } = useReadContract({
+    address: CONTRACTS.VAULT,
+    abi: VAULT_ABI,
+    functionName: "approvedZK",
+    args: [configuredZkAddress],
+  });
 
   const { data: ammAdmin, refetch: refetchAmmAdmin } = useReadContract({ address: CONTRACTS.AMM, abi: AMM_ABI, functionName: "admin" });
   const { data: ammPendingAdmin, refetch: refetchAmmPending } = useReadContract({ address: CONTRACTS.AMM, abi: AMM_ABI, functionName: "pendingAdmin" });
   const { data: ammFeeBps, refetch: refetchAmmFee } = useReadContract({ address: CONTRACTS.AMM, abi: AMM_ABI, functionName: "feeBps" });
+
+  const { data: vaultUsdcBalance, refetch: refetchVaultUsdc } = useReadContract({ address: CONTRACTS.USDC, abi: ERC20_ABI, functionName: "balanceOf", args: [CONTRACTS.VAULT] });
+  const { data: lenderUsdcBalance, refetch: refetchLenderUsdc } = useReadContract({ address: CONTRACTS.USDC, abi: ERC20_ABI, functionName: "balanceOf", args: [CONTRACTS.LENDER] });
+  const { data: ammUsdcBalance, refetch: refetchAmmUsdc } = useReadContract({ address: CONTRACTS.USDC, abi: ERC20_ABI, functionName: "balanceOf", args: [CONTRACTS.AMM] });
+  const { data: treasuryUsdcBalance, refetch: refetchTreasuryUsdc } = useReadContract({ address: CONTRACTS.USDC, abi: ERC20_ABI, functionName: "balanceOf", args: [CONTRACTS.TREASURY] });
+  const { data: vaultYieldIndex } = useReadContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "yieldIndex" });
 
   const {
     writeContract,
@@ -231,11 +281,21 @@ function AdminDashboardView() {
     void refetchReleaseFee();
     void refetchRevenueRouter();
     void refetchLender();
-    void refetchOracle();
     void refetchAmmAdmin();
     void refetchAmmPending();
     void refetchAmmFee();
+    void refetchRouterAdmin();
+    void refetchRouterTreasury();
+    void refetchRouterBackersBps();
+    void refetchRouterTotalWeight();
+    void refetchRouterBackersAccrued();
+    void refetchRouterUsdcBalance();
+    void refetchVaultUsdc();
+    void refetchLenderUsdc();
+    void refetchAmmUsdc();
+    void refetchTreasuryUsdc();
     if (checkedZkAddress) void refetchZkStatus();
+    void refetchConfiguredZkStatus();
   }, [
     isTxSuccess,
     checkedZkAddress,
@@ -243,12 +303,22 @@ function AdminDashboardView() {
     refetchAmmFee,
     refetchAmmPending,
     refetchLender,
-    refetchOracle,
     refetchReleaseFee,
     refetchRevenueRouter,
+    refetchRouterAdmin,
+    refetchRouterBackersAccrued,
+    refetchRouterBackersBps,
+    refetchRouterTotalWeight,
+    refetchRouterTreasury,
+    refetchRouterUsdcBalance,
+    refetchVaultUsdc,
+    refetchLenderUsdc,
+    refetchAmmUsdc,
+    refetchTreasuryUsdc,
     refetchSubmissionFee,
     refetchVaultAdmin,
     refetchVaultPending,
+    refetchConfiguredZkStatus,
     refetchZkStatus,
   ]);
 
@@ -262,16 +332,32 @@ function AdminDashboardView() {
     "CrowdVault.setReleaseFeeBps(uint256)",
     "CrowdVault.setRevenueRouter(address)",
     "CrowdVault.setLender(address)",
-    "CrowdVault.setOracle(address)",
     "CrowdVault.addZK(address)",
     "CrowdVault.removeZK(address)",
+    "CrowdVault.harvestYield()",
     "CrowdVault.transferAdmin(address)",
     "CrowdVault.approveProject(uint256)",
+    "RevenueRouter.setWeights(address[],uint256[])",
     "CommitmentAMM.setFee(uint256)",
     "CommitmentAMM.transferAdmin(address)",
     "CommitmentAMM.seed(uint256,uint256,uint256)",
     "CommitmentAMM.removeLiquidity(uint256)",
   ];
+
+  const toN = (v: unknown) => v ? Number(formatUnits(v as bigint, USDC_DECIMALS)) : 0;
+  const vaultUSDC      = toN(vaultUsdcBalance);
+  const lenderUSDC     = toN(lenderUsdcBalance);
+  const ammUSDC        = toN(ammUsdcBalance);
+  const treasuryUSDC   = toN(treasuryUsdcBalance);
+  const routerUSDC     = toN(routerUsdcBalance);
+  const yieldIndexFmt  = vaultYieldIndex ? Number(formatUnits(vaultYieldIndex as bigint, 18)).toFixed(6) : "1.000000";
+  const totalProtocolUSDC = vaultUSDC + lenderUSDC + ammUSDC + treasuryUSDC + routerUSDC;
+  const totalRaisedAll = projects.reduce((s, p) => s + p.totalRaised, 0);
+  const totalReleasedAll = projects.reduce((s, p) => s + p.totalReleased, 0);
+  const lockedInVault = Math.max(0, totalRaisedAll - totalReleasedAll);
+  const releasePct = totalRaisedAll > 0 ? (totalReleasedAll / totalRaisedAll) * 100 : 0;
+  const feeBps = Number(releaseFeeBps ?? 0);
+  const estFeeEarned = (totalReleasedAll * feeBps) / 10000;
 
   const summaryCards = (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -283,10 +369,10 @@ function AdminDashboardView() {
   );
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-4">
       <AdminSidebar section={section} onSection={setSection} />
 
-      <div className="space-y-4">
+      <div className="space-y-4 min-w-0">
         {summaryCards}
 
         <Card className="bg-card border-border">
@@ -366,6 +452,346 @@ function AdminDashboardView() {
           </Card>
         )}
 
+        {section === "financials" && (
+          <div className="space-y-5">
+
+            {/* ── KPI bar ── */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                {
+                  label: "Protocol USDC (all contracts)",
+                  value: fmtUSD(totalProtocolUSDC),
+                  sub: "vault + lender + AMM + treasury + router",
+                  icon: <Landmark className="w-4 h-4" />,
+                  color: "text-green-400",
+                  accent: "from-green-500/8",
+                },
+                {
+                  label: "Total Raised (all projects)",
+                  value: fmtUSD(totalRaisedAll),
+                  sub: `${projects.length} project${projects.length !== 1 ? "s" : ""}`,
+                  icon: <TrendingUp className="w-4 h-4" />,
+                  color: "text-blue-400",
+                  accent: "from-blue-500/8",
+                },
+                {
+                  label: "Total Released to Founders",
+                  value: fmtUSD(totalReleasedAll),
+                  sub: `${releasePct.toFixed(1)}% of raised`,
+                  icon: <ArrowUpRight className="w-4 h-4" />,
+                  color: "text-yellow-400",
+                  accent: "from-yellow-500/8",
+                },
+                {
+                  label: "Est. Release Fees Earned",
+                  value: fmtUSD(estFeeEarned),
+                  sub: `${feeBps} bps release fee`,
+                  icon: <PiggyBank className="w-4 h-4" />,
+                  color: "text-primary",
+                  accent: "from-primary/8",
+                },
+              ].map((k) => (
+                <Card key={k.label} className="bg-card border-border overflow-hidden group hover:border-primary/30 transition-colors">
+                  <CardContent className="p-4 relative">
+                    <div className={`absolute inset-0 bg-gradient-to-br ${k.accent} to-transparent opacity-0 group-hover:opacity-100 transition-opacity`} />
+                    <div className="relative flex items-start gap-3">
+                      <div className={`p-2 rounded-lg bg-secondary ${k.color} shrink-0`}>{k.icon}</div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">{k.label}</p>
+                        <p className={`text-xl font-mono font-bold ${k.color}`}>{k.value}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{k.sub}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* ── USDC distribution ── */}
+            <Card className="bg-card border-border">
+              <CardContent className="p-5 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Wallet className="w-4 h-4 text-primary" />
+                  <p className="text-sm font-semibold">USDC Distribution Across Contracts</p>
+                </div>
+                <Separator />
+                <div className="space-y-3">
+                  {[
+                    { label: "Vault",       value: vaultUSDC,    color: "bg-blue-500",   icon: <Shield className="w-3.5 h-3.5 text-blue-400" />,    addr: CONTRACTS.VAULT },
+                    { label: "Lender",      value: lenderUSDC,   color: "bg-green-500",  icon: <PiggyBank className="w-3.5 h-3.5 text-green-400" />, addr: CONTRACTS.LENDER },
+                    { label: "AMM",         value: ammUSDC,      color: "bg-purple-500", icon: <Layers className="w-3.5 h-3.5 text-purple-400" />,   addr: CONTRACTS.AMM },
+                    { label: "Treasury",    value: treasuryUSDC, color: "bg-yellow-500", icon: <Landmark className="w-3.5 h-3.5 text-yellow-400" />, addr: CONTRACTS.TREASURY },
+                    { label: "Rev. Router", value: routerUSDC,   color: "bg-orange-500", icon: <CircleDollarSign className="w-3.5 h-3.5 text-orange-400" />, addr: CONTRACTS.ROUTER },
+                  ].map((row) => {
+                    const pct = totalProtocolUSDC > 0 ? (row.value / totalProtocolUSDC) * 100 : 0;
+                    return (
+                      <div key={row.label} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="flex items-center gap-1.5 font-medium">{row.icon}{row.label}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-muted-foreground font-mono text-[11px] hidden sm:inline">{row.addr.slice(0, 8)}…{row.addr.slice(-6)}</span>
+                            <span className="font-mono font-semibold">{fmtUSD(row.value)}</span>
+                            <span className="text-muted-foreground w-10 text-right">{pct.toFixed(1)}%</span>
+                          </div>
+                        </div>
+                        <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${row.color} transition-all duration-700`}
+                            style={{ width: `${Math.max(pct, pct > 0 ? 0.5 : 0)}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="flex justify-between text-xs pt-1 border-t border-border">
+                    <span className="text-muted-foreground font-medium">Total</span>
+                    <span className="font-mono font-bold">{fmtUSD(totalProtocolUSDC)}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ── Fund flow summary ── */}
+            <Card className="bg-card border-border">
+              <CardContent className="p-5 space-y-4">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-primary" />
+                  <p className="text-sm font-semibold">Fund Flow Summary</p>
+                </div>
+                <Separator />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  {[
+                    { label: "Lender Balance",      value: fmtUSD(lenderUSDC),       color: "text-blue-400",   note: "USDC held by lender" },
+                    { label: "Locked in Vault",    value: fmtUSD(lockedInVault),    color: "text-green-400",  note: "raised − released" },
+                    { label: "Released to Founders",value: fmtUSD(totalReleasedAll), color: "text-yellow-400", note: `${releasePct.toFixed(1)}% of raised` },
+                    { label: "Yield Index",        value: yieldIndexFmt,            color: "text-purple-400", note: "per-unit yield multiplier" },
+                  ].map((item) => (
+                    <div key={item.label} className="border border-border rounded-xl p-3 space-y-1">
+                      <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{item.label}</p>
+                      <p className={`font-mono text-base font-bold ${item.color}`}>{item.value}</p>
+                      <p className="text-[10px] text-muted-foreground">{item.note}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* raise-vs-release progress */}
+                <div className="space-y-1.5 pt-2">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Release progress (all projects)</span>
+                    <span className="font-mono">{releasePct.toFixed(1)}%</span>
+                  </div>
+                  <div className="h-2.5 w-full rounded-full bg-secondary overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-primary to-blue-400 transition-all duration-700"
+                      style={{ width: `${Math.min(releasePct, 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>{fmtUSD(totalReleasedAll)} released</span>
+                    <span>{fmtUSD(totalRaisedAll)} total raised</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ── Per-project breakdown ── */}
+            <Card className="bg-card border-border">
+              <CardContent className="p-5 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Coins className="w-4 h-4 text-primary" />
+                  <p className="text-sm font-semibold">Per-Project Financials</p>
+                </div>
+                <Separator />
+                {projects.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No projects yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {/* header row */}
+                    <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-2 text-[10px] text-muted-foreground uppercase tracking-wide px-3">
+                      <span>Project</span>
+                      <span className="text-right">Goal</span>
+                      <span className="text-right">Raised</span>
+                      <span className="text-right">Released</span>
+                      <span className="text-right">Locked</span>
+                      <span className="text-right">Progress</span>
+                    </div>
+                    {projects.map((p) => {
+                      const locked = Math.max(0, p.totalRaised - p.totalReleased);
+                      const fundPct = p.fundingGoal > 0 ? Math.min(100, (p.totalRaised / p.fundingGoal) * 100) : 0;
+                      const relPct  = p.totalRaised > 0 ? Math.min(100, (p.totalReleased / p.totalRaised) * 100) : 0;
+                      const statusColor = p.goalMet ? "text-green-400" : p.isExpired ? "text-red-400" : p.approved ? "text-blue-400" : "text-yellow-400";
+                      const statusLabel = p.goalMet ? "Funded" : p.isExpired ? "Expired" : p.approved ? "Active" : "Pending";
+                      return (
+                        <div key={p.id} className="border border-border rounded-xl p-3 space-y-2 hover:border-primary/30 transition-colors">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-mono text-muted-foreground shrink-0">#{p.id}</span>
+                                <span className="text-sm font-semibold truncate">{p.name}</span>
+                                <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${statusColor} bg-current/10 shrink-0`} style={{ backgroundColor: "transparent", border: "1px solid currentColor" }}>
+                                  {statusLabel}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{p.founder.slice(0, 10)}…{p.founder.slice(-6)}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="text-xs font-mono font-bold">{fmtUSD(p.totalRaised)}</p>
+                              <p className="text-[10px] text-muted-foreground">of {fmtUSD(p.fundingGoal)}</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
+                            <div className="bg-secondary/40 rounded-md p-1.5">
+                              <p className="text-muted-foreground">Released</p>
+                              <p className="font-mono font-semibold text-yellow-400">{fmtUSD(p.totalReleased)}</p>
+                            </div>
+                            <div className="bg-secondary/40 rounded-md p-1.5">
+                              <p className="text-muted-foreground">Locked</p>
+                              <p className="font-mono font-semibold text-green-400">{fmtUSD(locked)}</p>
+                            </div>
+                            <div className="bg-secondary/40 rounded-md p-1.5">
+                              <p className="text-muted-foreground">Milestones</p>
+                              <p className="font-mono font-semibold">{Math.max(0, p.currentMilestone - 1)}/{p.milestoneCount}</p>
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[10px] text-muted-foreground">
+                              <span>Funding</span><span>{fundPct.toFixed(0)}%</span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                              <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all" style={{ width: `${fundPct}%` }} />
+                            </div>
+                            <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                              <span>Release</span><span>{relPct.toFixed(0)}%</span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                              <div className="h-full rounded-full bg-gradient-to-r from-yellow-500 to-orange-400 transition-all" style={{ width: `${relPct}%` }} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* ── Fee config summary ── */}
+            <Card className="bg-card border-border">
+              <CardContent className="p-5 space-y-3">
+                <div className="flex items-center gap-2">
+                  <CircleDollarSign className="w-4 h-4 text-primary" />
+                  <p className="text-sm font-semibold">Fee Configuration</p>
+                </div>
+                <Separator />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  <div className="border border-border rounded-xl p-3">
+                    <p className="text-muted-foreground text-[10px] uppercase tracking-wide">Submission Fee</p>
+                    <p className="font-mono text-base font-bold mt-1">{projectSubmissionFee ? Number(formatUnits(projectSubmissionFee as bigint, USDC_DECIMALS)).toFixed(2) : "0.00"} <span className="text-muted-foreground text-[11px]">USDC</span></p>
+                  </div>
+                  <div className="border border-border rounded-xl p-3">
+                    <p className="text-muted-foreground text-[10px] uppercase tracking-wide">Release Fee</p>
+                    <p className="font-mono text-base font-bold mt-1">{feeBps} <span className="text-muted-foreground text-[11px]">bps ({(feeBps / 100).toFixed(2)}%)</span></p>
+                  </div>
+                  <div className="border border-border rounded-xl p-3">
+                    <p className="text-muted-foreground text-[10px] uppercase tracking-wide">Backer Rev. Split</p>
+                    <p className="font-mono text-base font-bold mt-1">{(Number(routerBackersBps ?? 0) / 100).toFixed(2)}<span className="text-muted-foreground text-[11px]">%</span></p>
+                  </div>
+                  <div className="border border-border rounded-xl p-3">
+                    <p className="text-muted-foreground text-[10px] uppercase tracking-wide">AMM Fee</p>
+                    <p className="font-mono text-base font-bold mt-1">{String(ammFeeBps ?? 0)} <span className="text-muted-foreground text-[11px]">bps</span></p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {section === "revenue" && (
+          <div className="space-y-4">
+            <Card className="bg-card border-border">
+              <CardContent className="p-5 space-y-3">
+                <p className="text-sm font-semibold flex items-center gap-2"><CircleDollarSign className="w-4 h-4 text-primary" /> Revenue Router</p>
+                <Separator />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  <div className="border border-border rounded-md p-3">
+                    <p className="text-muted-foreground mb-1">Backer Revenue Accrued</p>
+                    <p className="font-mono text-base">{fmtUSD(routerBackersAccrued ? Number(formatUnits(routerBackersAccrued as bigint, USDC_DECIMALS)) : 0)}</p>
+                  </div>
+                  <div className="border border-border rounded-md p-3">
+                    <p className="text-muted-foreground mb-1">Unclaimed Router USDC</p>
+                    <p className="font-mono text-base">{fmtUSD(routerUsdcBalance ? Number(formatUnits(routerUsdcBalance as bigint, USDC_DECIMALS)) : 0)}</p>
+                  </div>
+                  <div className="border border-border rounded-md p-3">
+                    <p className="text-muted-foreground mb-1">Backer Split</p>
+                    <p className="font-mono text-base">{Number(routerBackersBps ?? 0) / 100}%</p>
+                  </div>
+                  <div className="border border-border rounded-md p-3">
+                    <p className="text-muted-foreground mb-1">Total Weight</p>
+                    <p className="font-mono break-all">{String(routerTotalWeight ?? 0)}</p>
+                  </div>
+                  <div className="border border-border rounded-md p-3">
+                    <p className="text-muted-foreground mb-1">Router Admin</p>
+                    <p className="font-mono break-all">{String(routerAdmin ?? "-")}</p>
+                  </div>
+                  <div className="border border-border rounded-md p-3">
+                    <p className="text-muted-foreground mb-1">Router Treasury</p>
+                    <p className="font-mono break-all">{String(routerTreasury ?? "-")}</p>
+                  </div>
+                </div>
+                <div className="rounded-md border border-border p-3 text-xs">
+                  <p className="text-muted-foreground mb-1">Vault Revenue Router</p>
+                  <p className="font-mono break-all">{String(revenueRouter ?? "-")}</p>
+                  <p className={`mt-2 text-[10px] ${routerConfiguredInVault ? "text-green-400" : "text-yellow-400"}`}>
+                    {routerConfiguredInVault ? "Vault is connected to configured router" : `Configured router: ${CONTRACTS.ROUTER}`}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Input value={revenueRouterInput} onChange={(e) => setRevenueRouterInput(e.target.value)} placeholder="Revenue Router address" />
+                  <Button size="sm" className="h-9 text-xs" disabled={isBusy || !isAddressLike(revenueRouterInput)} onClick={() => runAction("Set Revenue Router", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "setRevenueRouter", args: [revenueRouterInput as `0x${string}`] }))}>Set Revenue Router</Button>
+                  <Button size="sm" variant="outline" className="h-9 text-xs" disabled={isBusy} onClick={() => setRevenueRouterInput(CONTRACTS.ROUTER)}>Use Configured Router</Button>
+                  <Button size="sm" className="h-9 text-xs" disabled={isBusy || routerConfiguredInVault} onClick={() => runAction("Connect Configured Router", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "setRevenueRouter", args: [CONTRACTS.ROUTER] }))}>Connect Configured Router</Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-card border-border">
+              <CardContent className="p-5 space-y-3">
+                <p className="text-sm font-semibold">Backer Revenue Weights</p>
+                <Separator />
+                <p className="text-xs text-muted-foreground">Set comma-separated wallet addresses and matching integer weights. These weights decide how the router distributes claimable backer revenue.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Input value={weightUsersInput} onChange={(e) => setWeightUsersInput(e.target.value)} placeholder="0xabc..., 0xdef..." />
+                  <Input value={weightValuesInput} onChange={(e) => setWeightValuesInput(e.target.value)} placeholder="100, 50" />
+                  <Button
+                    size="sm"
+                    className="h-9 text-xs md:col-span-2"
+                    disabled={isBusy}
+                    onClick={() => {
+                      const users = weightUsersInput.split(",").map((v) => v.trim()).filter(Boolean);
+                      const weights = weightValuesInput.split(",").map((v) => v.trim()).filter(Boolean);
+                      if (users.length === 0 || users.length !== weights.length || !users.every(isAddressLike)) return;
+                      let parsedWeights: bigint[];
+                      try {
+                        parsedWeights = weights.map((w) => BigInt(w));
+                      } catch {
+                        return;
+                      }
+                      runAction("Set Revenue Weights", () => writeContract({
+                        address: CONTRACTS.ROUTER,
+                        abi: REVENUE_ROUTER_ABI,
+                        functionName: "setWeights",
+                        args: [users as `0x${string}`[], parsedWeights],
+                      }));
+                    }}
+                  >
+                    Set Backer Weights
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {section === "vault" && (
           <div className="space-y-4">
             <Card className="bg-card border-border">
@@ -423,16 +849,44 @@ function AdminDashboardView() {
                 <Separator />
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
                   <div className="border border-border rounded-md p-3"><p className="text-muted-foreground mb-1">Revenue Router</p><p className="font-mono break-all">{String(revenueRouter ?? "-")}</p></div>
-                  <div className="border border-border rounded-md p-3"><p className="text-muted-foreground mb-1">Lender</p><p className="font-mono break-all">{String(lender ?? "-")}</p></div>
-                  <div className="border border-border rounded-md p-3"><p className="text-muted-foreground mb-1">Oracle</p><p className="font-mono break-all">{String(oracle ?? "-")}</p></div>
+                  <div className="border border-border rounded-md p-3">
+                    <p className="text-muted-foreground mb-1">Lender</p>
+                    <p className="font-mono break-all">{String(lender ?? "-")}</p>
+                    <p className={`mt-2 text-[10px] ${configuredLenderMatches ? "text-green-400" : "text-yellow-400"}`}>
+                      {configuredLenderMatches ? "Matches configured lender" : `Configured: ${CONTRACTS.LENDER}`}
+                    </p>
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Input value={revenueRouterInput} onChange={(e) => setRevenueRouterInput(e.target.value)} placeholder="Revenue Router address" />
                   <Button size="sm" className="h-9 text-xs" disabled={isBusy || !isAddressLike(revenueRouterInput)} onClick={() => runAction("Set Revenue Router", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "setRevenueRouter", args: [revenueRouterInput as `0x${string}`] }))}>Set Revenue Router</Button>
                   <Input value={lenderInput} onChange={(e) => setLenderInput(e.target.value)} placeholder="Lender address" />
                   <Button size="sm" className="h-9 text-xs" disabled={isBusy || !isAddressLike(lenderInput)} onClick={() => runAction("Set Lender", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "setLender", args: [lenderInput as `0x${string}`] }))}>Set Lender</Button>
-                  <Input value={oracleInput} onChange={(e) => setOracleInput(e.target.value)} placeholder="Oracle address" />
-                  <Button size="sm" className="h-9 text-xs" disabled={isBusy || !isAddressLike(oracleInput)} onClick={() => runAction("Set Oracle", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "setOracle", args: [oracleInput as `0x${string}`] }))}>Set Oracle</Button>
+                  <Button size="sm" variant="outline" className="h-9 text-xs" disabled={isBusy} onClick={() => setLenderInput(CONTRACTS.LENDER)}>Use Configured Lender</Button>
+                  <Button size="sm" className="h-9 text-xs" disabled={isBusy || configuredLenderMatches} onClick={() => runAction("Connect Configured Lender", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "setLender", args: [CONTRACTS.LENDER] }))}>Connect Configured Lender</Button>
+                  <Input value={seedYieldInput} onChange={(e) => setSeedYieldInput(e.target.value)} placeholder="Seed test yield in USDC" />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-9 text-xs"
+                    disabled={isBusy || !canSeedYield}
+                    onClick={() => {
+                      let amount: bigint;
+                      try {
+                        amount = parseUnits(seedYieldInput || "0", USDC_DECIMALS);
+                      } catch {
+                        return;
+                      }
+                      if (amount <= 0n || !isAddressLike(connectedLender)) return;
+                      runAction("Seed Test Yield", () => writeContract({
+                        address: CONTRACTS.USDC,
+                        abi: ERC20_ABI,
+                        functionName: "transfer",
+                        args: [connectedLender, amount],
+                      }));
+                    }}
+                  >Transfer Yield to Lender</Button>
+                  <Button size="sm" className="h-9 text-xs md:col-span-2" disabled={isBusy} onClick={() => runAction("Harvest Lender Yield", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "harvestYield" }))}>Harvest Lender Yield</Button>
                 </div>
               </CardContent>
             </Card>
@@ -444,8 +898,16 @@ function AdminDashboardView() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs items-center">
                   <Input value={zkInput} onChange={(e) => setZkInput(e.target.value)} placeholder="ZK verifier address" />
                   <div className="text-muted-foreground">Approved: <span className="font-mono text-foreground">{checkedZkAddress ? String(Boolean(isZkApproved)) : "-"}</span></div>
+                  <div className="text-muted-foreground md:col-span-2">
+                    Configured verifier: <span className="font-mono text-foreground break-all">{CONTRACTS.ZKVER}</span>
+                    <span className={`ml-2 ${isConfiguredZkApproved ? "text-green-400" : "text-yellow-400"}`}>
+                      {isConfiguredZkApproved ? "approved" : "not approved"}
+                    </span>
+                  </div>
                   <Button size="sm" className="h-9 text-xs" disabled={isBusy || !isAddressLike(zkInput)} onClick={() => runAction("Add ZK", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "addZK", args: [zkInput as `0x${string}`] }))}>Add ZK</Button>
                   <Button size="sm" variant="outline" className="h-9 text-xs" disabled={isBusy || !isAddressLike(zkInput)} onClick={() => runAction("Remove ZK", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "removeZK", args: [zkInput as `0x${string}`] }))}>Remove ZK</Button>
+                  <Button size="sm" variant="outline" className="h-9 text-xs" disabled={isBusy} onClick={() => setZkInput(CONTRACTS.ZKVER)}>Use Configured ZK</Button>
+                  <Button size="sm" className="h-9 text-xs" disabled={isBusy || Boolean(isConfiguredZkApproved)} onClick={() => runAction("Approve Configured ZK", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "addZK", args: [CONTRACTS.ZKVER] }))}>Approve Configured ZK</Button>
                   <Input value={newVaultAdminInput} onChange={(e) => setNewVaultAdminInput(e.target.value)} placeholder="New Vault admin address" />
                   <Button size="sm" className="h-9 text-xs" disabled={isBusy || !isAddressLike(newVaultAdminInput)} onClick={() => runAction("Transfer Vault Admin", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "transferAdmin", args: [newVaultAdminInput as `0x${string}`] }))}>Transfer Vault Admin</Button>
                 </div>

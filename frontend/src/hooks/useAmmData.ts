@@ -1,4 +1,6 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
+import { gql, useQuery } from "@apollo/client";
 import {
   useAccount,
   useReadContract,
@@ -6,7 +8,7 @@ import {
   useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
-import { parseUnits, formatUnits } from "viem";
+import { parseUnits, formatUnits, maxUint256 } from "viem";
 import { CONTRACTS } from "@/config/contracts";
 import { AMM_ABI, ERC20_ABI, ERC1155_ABI, VAULT_ABI } from "@/config/abis";
 
@@ -14,9 +16,37 @@ import { AMM_ABI, ERC20_ABI, ERC1155_ABI, VAULT_ABI } from "@/config/abis";
 const USDC_DECIMALS = 6;
 const SLIPPAGE_BPS  = 50; // 0.5%
 
+const INDEXED_POOLS_QUERY = gql`
+  query IndexedAmmPools {
+    pools(first: 100, orderBy: updatedAt, orderDirection: desc, where: { seeded: true }) {
+      id
+      projectId
+      reserveUsdc
+      reserveCommit
+      lastPrice
+      volumeUsdc
+      volumeCommit
+      swapCount
+      updatedAt
+    }
+  }
+`;
+
 /* ─── helpers ─── */
 const toNum = (v: bigint | undefined, dec = USDC_DECIMALS) =>
   v ? Number(formatUnits(v, dec)) : 0;
+
+const toIndexedToken = (value: string | number | null | undefined) => {
+  if (value == null) return 0;
+  const n = Number(value);
+  return Number.isFinite(n) ? n / 1e6 : 0;
+};
+
+const toIndexedNumber = (value: string | number | null | undefined) => {
+  if (value == null) return 0;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+};
 
 export function calcSwapOut(
   amountIn: number,
@@ -32,11 +62,38 @@ export function calcSwapOut(
 /* ─── exported types ─── */
 export interface AmmPool {
   id: number;
+  name: string;
+  description: string;
   symbol: string;
   poolUsdc: number;
   poolCommit: number;
   price: number;
   seeded: boolean;
+  totalRaised: number;
+  fundingGoal: number;
+  fundingDeadline: bigint;
+  fundingClosed: boolean;
+  goalMet: boolean;
+  indexed: boolean;
+  volumeUsdc: number;
+  volumeCommit: number;
+  swapCount: number;
+  lastTradePrice: number;
+  indexedUpdatedAt: number;
+  tradable: boolean;
+  blockReason: string;
+}
+
+interface IndexedPoolResult {
+  id: string;
+  projectId: string;
+  reserveUsdc: string;
+  reserveCommit: string;
+  lastPrice: string;
+  volumeUsdc: string;
+  volumeCommit: string;
+  swapCount: string;
+  updatedAt: string;
 }
 
 export function useAmmData(
@@ -45,6 +102,27 @@ export function useAmmData(
   inputVal: string,
 ) {
   const { address, isConnected } = useAccount();
+  const [lastAction, setLastAction] = useState<"approve-usdc" | "approve-commit" | "swap" | null>(null);
+  const {
+    data: indexedPoolsData,
+    error: indexedPoolsError,
+    loading: indexedPoolsLoading,
+    refetch: refetchIndexedPools,
+  } = useQuery(INDEXED_POOLS_QUERY, {
+    pollInterval: 30_000,
+    fetchPolicy: "cache-and-network",
+    notifyOnNetworkStatusChange: false,
+  });
+
+  const indexedPoolById = useMemo(() => {
+    const map = new Map<number, IndexedPoolResult>();
+    const indexedPools = (indexedPoolsData?.pools ?? []) as IndexedPoolResult[];
+    for (const pool of indexedPools) {
+      const projectId = Number(pool.projectId);
+      if (Number.isFinite(projectId)) map.set(projectId, pool);
+    }
+    return map;
+  }, [indexedPoolsData]);
 
   /* ── project count ── */
   const { data: projectCountRaw } = useReadContract({
@@ -83,9 +161,25 @@ export function useAmmData(
     [count],
   );
 
-  const { data: poolData } = useReadContracts({
+  const { data: poolData, refetch: refetchPoolData } = useReadContracts({
     contracts: poolCalls,
-    query: { enabled: count > 0 },
+    query: { enabled: count > 0, refetchInterval: 30_000, placeholderData: keepPreviousData },
+  });
+
+  const projectCalls = useMemo(
+    () =>
+      Array.from({ length: count }, (_, i) => ({
+        address: CONTRACTS.VAULT as `0x${string}`,
+        abi: VAULT_ABI,
+        functionName: "projects" as const,
+        args: [BigInt(i + 1)] as [bigint],
+      })),
+    [count],
+  );
+
+  const { data: projectData, refetch: refetchProjectData } = useReadContracts({
+    contracts: projectCalls,
+    query: { enabled: count > 0, refetchInterval: 30_000, placeholderData: keepPreviousData },
   });
 
   /* ── fee ── */
@@ -96,27 +190,93 @@ export function useAmmData(
   });
   const feeBps = feeBpsRaw ? Number(feeBpsRaw) : 30;
 
-  /* ── build seeded pools list ── */
-  const pools: AmmPool[] = useMemo(() => {
-    if (!poolData) return [];
+  /* ── build pool list ── */
+  const allPools: AmmPool[] = useMemo(() => {
+    if (!poolData || !projectData) return [];
+    const now = Math.floor(Date.now() / 1000);
     return Array.from({ length: count }, (_, i) => {
       const base      = i * 3;
       const pUsdc     = poolData[base]?.result     as bigint | undefined;
       const pCommit   = poolData[base + 1]?.result as bigint | undefined;
       const isSeeded  = poolData[base + 2]?.result as boolean | undefined;
+      const projectRes = projectData[i];
       const usdcNum   = toNum(pUsdc);
       const commitNum = toNum(pCommit);
+      let totalRaised = 0;
+      let fundingGoal = 0;
+      let fundingDeadline = 0n;
+      let name = `Project #${i + 1}`;
+      let description = "";
+
+      if (projectRes?.status === "success") {
+        const project = projectRes.result as readonly [
+          string, string, bigint, bigint, bigint,
+          bigint, bigint, boolean, string, bigint, bigint, boolean,
+          string, string, string, bigint,
+          bigint, bigint, boolean, bigint, boolean, boolean,
+        ];
+        totalRaised = toNum(project[3]);
+        fundingGoal = toNum(project[9]);
+        fundingDeadline = project[10];
+        name = project[12] || name;
+        description = project[13] || "";
+      }
+
+      const goalMet = fundingGoal > 0 && totalRaised >= fundingGoal;
+      const fundingClosed = Number(fundingDeadline) <= now; // Only close when deadline passes
+      const indexed = indexedPoolById.get(i + 1);
+      const indexedReserveUsdc = toIndexedToken(indexed?.reserveUsdc);
+      const indexedReserveCommit = toIndexedToken(indexed?.reserveCommit);
+      const marketUsdc = usdcNum > 0 ? usdcNum : indexedReserveUsdc;
+      const marketCommit = commitNum > 0 ? commitNum : indexedReserveCommit;
+      const spotPrice = marketCommit > 0 ? marketUsdc / marketCommit : 0;
+      const seeded = (isSeeded ?? false) || !!indexed;
+      const hasLiquidity = marketUsdc > 0 && marketCommit > 0;
+      const tradable = seeded && hasLiquidity && fundingClosed && goalMet;
+      const blockReason = !seeded
+        ? "Needs AMM liquidity"
+        : !hasLiquidity
+        ? "Pool has no reserves"
+        : !goalMet
+        ? "Funding goal not met"
+        : !fundingClosed
+        ? "Funding still open"
+        : "Tradable";
+
       return {
         id:         i + 1,
-        symbol:     `NST-${i + 1}`,
-        poolUsdc:   usdcNum,
-        poolCommit: commitNum,
-        price:      commitNum > 0 ? usdcNum / commitNum : 0,
-        seeded:     isSeeded ?? false,
+        name,
+        description,
+        symbol:     `P${i + 1}`,
+        poolUsdc:   marketUsdc,
+        poolCommit: marketCommit,
+        price:      spotPrice,
+        seeded,
+        totalRaised,
+        fundingGoal,
+        fundingDeadline,
+        fundingClosed,
+        goalMet,
+        indexed: !!indexed,
+        volumeUsdc: toIndexedNumber(indexed?.volumeUsdc),
+        volumeCommit: toIndexedNumber(indexed?.volumeCommit),
+        swapCount: toIndexedNumber(indexed?.swapCount),
+        lastTradePrice: toIndexedNumber(indexed?.lastPrice),
+        indexedUpdatedAt: toIndexedNumber(indexed?.updatedAt) * 1000,
+        tradable,
+        blockReason,
       };
-    }).filter((p) => p.seeded);
-  }, [poolData, count]);
+    });
+  }, [poolData, projectData, count, indexedPoolById]);
 
+  const pools = useMemo(
+    () => allPools.filter((p) => p.goalMet && p.fundingClosed), // Show funded & closed projects (including pending seed)
+    [allPools],
+  );
+  const poolCandidates = useMemo(
+    () => allPools.filter((p) => p.seeded || p.goalMet || p.fundingClosed),
+    [allPools],
+  );
   const pool = pools.find((p) => p.id === selectedProjectId) ?? pools[0];
 
   /* ── user balances ── */
@@ -137,7 +297,7 @@ export function useAmmData(
   });
 
   /* ── allowances ── */
-  const { data: usdcAllowance } = useReadContract({
+  const { data: usdcAllowance, refetch: refetchUsdcAllowance } = useReadContract({
     address: CONTRACTS.USDC,
     abi: ERC20_ABI,
     functionName: "allowance",
@@ -145,7 +305,7 @@ export function useAmmData(
     query: { enabled: !!address },
   });
 
-  const { data: isCommitApproved } = useReadContract({
+  const { data: isCommitApproved, refetch: refetchCommitApproval } = useReadContract({
     address: CONTRACTS.COMMIT,
     abi: ERC1155_ABI,
     functionName: "isApprovedForAll",
@@ -175,9 +335,32 @@ export function useAmmData(
   const { isLoading: isTxPending, isSuccess: isTxSuccess } =
     useWaitForTransactionReceipt({ hash: writeTxHash });
 
+  useEffect(() => {
+    if (!isTxSuccess) return;
+    if (lastAction === "approve-usdc") void refetchUsdcAllowance();
+    if (lastAction === "approve-commit") void refetchCommitApproval();
+    void refetchPoolData();
+    void refetchProjectData();
+    window.setTimeout(() => {
+      if (lastAction === "approve-usdc") void refetchUsdcAllowance();
+      if (lastAction === "approve-commit") void refetchCommitApproval();
+      void refetchIndexedPools();
+    }, 3_000);
+  }, [
+    isTxSuccess,
+    lastAction,
+    refetchCommitApproval,
+    refetchIndexedPools,
+    refetchPoolData,
+    refetchProjectData,
+    refetchUsdcAllowance,
+  ]);
+
   /* ── swap handler ── */
   function swap() {
     if (!pool || inputNum <= 0) return;
+    if (direction === "buy" && inputNum > usdcBal) return;
+    if (direction === "sell" && inputNum > commitBal) return;
 
     const amountIn  = parseUnits(inputVal, USDC_DECIMALS);
     const minOut    = parseUnits(minReceived.toFixed(USDC_DECIMALS), USDC_DECIMALS);
@@ -185,14 +368,16 @@ export function useAmmData(
 
     if (direction === "buy") {
       if (!usdcAllowance || (usdcAllowance as bigint) < amountIn) {
+        setLastAction("approve-usdc");
         writeContract({
           address: CONTRACTS.USDC,
           abi: ERC20_ABI,
           functionName: "approve",
-          args: [CONTRACTS.AMM as `0x${string}`, amountIn],
+          args: [CONTRACTS.AMM as `0x${string}`, maxUint256],
         });
         return;
       }
+      setLastAction("swap");
       writeContract({
         address: CONTRACTS.AMM as `0x${string}`,
         abi: AMM_ABI,
@@ -201,6 +386,7 @@ export function useAmmData(
       });
     } else {
       if (!isCommitApproved) {
+        setLastAction("approve-commit");
         writeContract({
           address: CONTRACTS.COMMIT,
           abi: ERC1155_ABI,
@@ -209,6 +395,7 @@ export function useAmmData(
         });
         return;
       }
+      setLastAction("swap");
       writeContract({
         address: CONTRACTS.AMM as `0x${string}`,
         abi: AMM_ABI,
@@ -227,11 +414,17 @@ export function useAmmData(
         parseUnits(inputVal || "0", USDC_DECIMALS));
 
   const needsCommitApproval =
-    direction === "sell" && !isCommitApproved;
+    direction === "sell" && inputNum > 0 && !isCommitApproved;
+
+  const hasEnoughInputBalance =
+    inputNum <= 0 ? true : direction === "buy" ? inputNum <= usdcBal : inputNum <= commitBal;
+  const canSellSelectedPool = direction !== "sell" || commitBal > 0;
 
   return {
     /* data */
     pools,
+    poolCandidates,
+    projectCount: count,
     pool,
     feeBps,
     usdcBal,
@@ -244,10 +437,15 @@ export function useAmmData(
     isTxPending,
     isTxSuccess,
     writeError,
+    indexedPoolsLoading,
+    indexedPoolsError,
     isConnected,
+    lastAction,
     /* approval helpers */
     needsUsdcApproval,
     needsCommitApproval,
+    hasEnoughInputBalance,
+    canSellSelectedPool,
     /* action */
     swap,
   };

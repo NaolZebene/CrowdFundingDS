@@ -19,30 +19,34 @@ interface ICommitToken {
         address user,
         uint256 projectId
     ) external view returns (uint256);
+    function totalSupplyByProject(uint256 projectId) external view returns (uint256);
 }
 
 interface ILender {
     function supply(uint256 amount) external;
     function withdraw(uint256 amount, address to) external;
+    function withdrawYield(uint256 amount, address to) external;
     function balance() external view returns (uint256);
-}
-
-interface IOracle {
-    function milestoneOk(
-        uint256 projectId,
-        uint256 milestone
-    ) external view returns (bool);
 }
 
 interface IZKVerifier {
     function verify(
         address user,
         bytes calldata proof
-    ) external view returns (bool);
+    ) external returns (bool);
 }
 
 interface IRevenueRouter {
     function onRevenue(uint256 amount) external;
+}
+
+interface ICommitmentAMM {
+    function seeded(uint256 projectId) external view returns (bool);
+    function seedFromVault(
+        uint256 projectId,
+        uint256 usdcIn,
+        uint256 commitIn
+    ) external;
 }
 
 contract CrowdVault {
@@ -69,7 +73,6 @@ contract CrowdVault {
     error NoLender();
     error NoYield();
     error MilestoneDone();
-    error OracleNotOk();
     error NoMilestone();
     error AlreadyRequested();
     error VetoActive();
@@ -82,6 +85,14 @@ contract CrowdVault {
     error NotVetoed();
     error NothingToRelease();
     error ProjectNotApproved();
+    error MilestoneWindowTooShort();
+    error MilestoneWindowTooLong();
+    error MilestoneDeadlineNotPassed();
+    error TimeoutAlreadyOpen();
+    error NoTimeoutOpen();
+    error TimeoutWindowNotOver();
+    error AlreadyVotedTimeout();
+    error ProjectDead();
 
     // ---- roles ----
     address public admin;
@@ -91,17 +102,20 @@ contract CrowdVault {
     IERC20V public immutable usdc;
     ICommitToken public immutable commit;
     ILender public lender;
-    IOracle public oracle;
     mapping(address => bool) public approvedZK;
     address public revenueRouter;
+    ICommitmentAMM public amm;
 
     // ---- constants ----
     uint256 public constant VETO_WINDOW = 3 days;
-    uint256 public constant MIN_FUNDING_DEADLINE = 3 days;
     uint256 public constant DEFAULT_FUNDING_DEADLINE = 30 days;
     uint256 public constant MAX_FUNDING_DEADLINE = 90 days;
     uint256 public constant VETO_THRESHOLD_BPS = 3000; // 30% stake required to veto
+    uint256 public constant APPROVAL_THRESHOLD_BPS = 3000; // 30% stake to release early
     uint256 public constant ONE = 1e18;
+    uint256 public constant MIN_MILESTONE_WINDOW = 7 days;
+    uint256 public constant MAX_MILESTONE_WINDOW = 180 days;
+    uint256 public constant TIMEOUT_VOTE_WINDOW = 3 days;
 
     // ---- project state ----
     struct Project {
@@ -120,6 +134,14 @@ contract CrowdVault {
         string name;
         string description;
         string additionalFilesUrl;
+        uint256 totalAmmSeeded;
+        // milestone deadline
+        uint256 milestoneWindow;   // seconds founder has per milestone
+        uint256 milestoneDeadline; // timestamp by which next milestone must be requested
+        bool timeoutActive;        // governance vote is open
+        uint256 timeoutOpenedAt;   // when triggerMilestoneTimeout was called
+        bool projectDead;          // set when refund vote wins
+        bool releaseApproved;      // set when 30% of backers approve early release
     }
 
     uint256 public projectCount;
@@ -129,16 +151,32 @@ contract CrowdVault {
     // ---- veto voting ----
     mapping(uint256 => uint256) public vetoVotes;
     mapping(uint256 => mapping(address => bool)) public hasVoted;
+    mapping(uint256 => mapping(address => uint256)) public votedStake; // stake at time of vote
     mapping(uint256 => address[]) public vetoVoters;
+
+    // ---- approval voting (early release) ----
+    mapping(uint256 => uint256) public approveVotes;
+    mapping(uint256 => mapping(address => bool)) public hasApproved;
+    mapping(uint256 => mapping(address => uint256)) public approvedStake;
+    mapping(uint256 => address[]) public approveVoters;
+
+    // ---- milestone timeout voting ----
+    mapping(uint256 => uint256) public timeoutVotesExtend;
+    mapping(uint256 => uint256) public timeoutVotesRefund;
+    mapping(uint256 => mapping(address => bool)) public hasVotedTimeout;
+    mapping(uint256 => mapping(address => uint256)) public timeoutVotedStake;
+    mapping(uint256 => address[]) public timeoutVoters;
 
     // ---- fees ----
     uint256 public projectSubmissionFee;
     uint256 public releaseFeeBps; // e.g. 100 = 1%
+    uint256 public ammSeedBps = 1000; // 10% of raised funds, capped by unreleased funds
 
     // ---- global accounting ----
     uint256 public activeReleaseCount;
     uint256 public totalRaised;
     uint256 public totalReleasedGlobal;
+    uint256 public totalAmmSeededGlobal;
 
     // ---- user project tracking (for yield) ----
     mapping(address => uint256[]) public userProjects;
@@ -185,7 +223,10 @@ contract CrowdVault {
     );
 
     event VetoedEvent(uint256 indexed projectId, address indexed by);
+    event VetoCancelled(uint256 indexed projectId, address indexed by);
     event VetoCleared(uint256 indexed projectId, address indexed byTreasury);
+    event ReleaseApproved(uint256 indexed projectId, address indexed by);
+    event ReleaseApprovedThresholdMet(uint256 indexed projectId);
     event FundsReleased(
         uint256 indexed projectId,
         uint256 indexed milestone,
@@ -200,8 +241,13 @@ contract CrowdVault {
     event SubmissionFeeSet(uint256 fee);
     event ReleaseFeeSet(uint256 bps);
     event RevenueRouterSet(address revenueRouter);
+    event AmmSet(address amm);
+    event AmmSeedBpsSet(uint256 bps);
+    event AmmSeeded(uint256 indexed projectId, uint256 usdcIn, uint256 commitIn);
+    event MilestoneTimeoutOpened(uint256 indexed projectId, uint256 deadline);
+    event TimeoutVoteCast(uint256 indexed projectId, address indexed voter, bool extend, uint256 stake);
+    event TimeoutResolved(uint256 indexed projectId, bool extended);
     event LenderSet(address lender);
-    event OracleSet(address oracle);
     event ZkAdded(address zk);
     event ZkRemoved(address zk);
     event ProjectRegistered(uint256 indexed projectId, address indexed user);
@@ -251,6 +297,18 @@ contract CrowdVault {
         emit RevenueRouterSet(revenueRouter_);
     }
 
+    function setAMM(address amm_) external onlyAdmin {
+        if (amm_ == address(0)) revert BadAddress();
+        amm = ICommitmentAMM(amm_);
+        emit AmmSet(amm_);
+    }
+
+    function setAmmSeedBps(uint256 bps) external onlyAdmin {
+        require(bps <= 3000, "max 30%");
+        ammSeedBps = bps;
+        emit AmmSeedBpsSet(bps);
+    }
+
     function setLender(address lender_) external onlyAdmin {
         if (address(lender) != address(0)) {
             uint256 bal = lender.balance();
@@ -267,12 +325,6 @@ contract CrowdVault {
             }
         }
         emit LenderSet(lender_);
-    }
-
-    function setOracle(address oracle_) external onlyAdmin {
-        if (activeReleaseCount > 0) revert ReleasePending();
-        oracle = IOracle(oracle_);
-        emit OracleSet(oracle_);
     }
 
     function addZK(address zk_) external onlyAdmin {
@@ -307,16 +359,23 @@ contract CrowdVault {
         string calldata additionalFilesUrl_,
         string calldata metadataUri_,
         uint256 fundingGoal_,
-        uint256 fundingDeadline_
+        uint256 fundingDeadline_,
+        uint256 milestoneWindow_
     ) external returns (uint256 projectId) {
         if (treasury_ == address(0)) revert BadAddress();
         if (milestoneCount_ == 0) revert BadMilestones();
-        if (fundingDeadline_ == 0) {
+        if (fundingDeadline_ == 0 && fundingGoal_ > 0) {
             fundingDeadline_ = block.timestamp + DEFAULT_FUNDING_DEADLINE;
         } else if (
-            fundingDeadline_ < block.timestamp + MIN_FUNDING_DEADLINE ||
             fundingDeadline_ > block.timestamp + MAX_FUNDING_DEADLINE
         ) revert BadDeadline();
+        if (milestoneWindow_ == 0) {
+            milestoneWindow_ = 60 days;
+        } else if (milestoneWindow_ < MIN_MILESTONE_WINDOW) {
+            revert MilestoneWindowTooShort();
+        } else if (milestoneWindow_ > MAX_MILESTONE_WINDOW) {
+            revert MilestoneWindowTooLong();
+        }
 
         if (projectSubmissionFee > 0) {
             if (!usdc.transferFrom(msg.sender, admin, projectSubmissionFee))
@@ -341,6 +400,7 @@ contract CrowdVault {
         p.name = name_;
         p.description = description_;
         p.additionalFilesUrl = additionalFilesUrl_;
+        p.milestoneWindow = milestoneWindow_;
         founderProjects[msg.sender].push(projectId);
 
         emit ProjectCreated(
@@ -383,15 +443,21 @@ contract CrowdVault {
         if (amount == 0) revert ZeroAmount();
         Project storage proj = projects[projectId];
         if (!proj.approved) revert ProjectNotApproved();
-        if (proj.currentMilestone >= proj.milestoneCount)
-            revert ProjectComplete();
+        if (proj.projectDead) revert ProjectComplete();
         if (proj.releaseRequestedAt != 0) revert ReleasePending();
+
+        // Deadline check: block investment after deadline
         if (proj.fundingDeadline != 0 && block.timestamp > proj.fundingDeadline)
             revert DeadlinePassed();
+
+        // For no-goal projects (fundingGoal=0, fundingDeadline=0), block when all milestones complete
+        if (proj.fundingDeadline == 0 && proj.currentMilestone >= proj.milestoneCount)
+            revert ProjectComplete();
         if (proof.length > 0) {
-            (address zkAddr) = abi.decode(proof[:20], (address));
+            (address zkAddr, bytes memory verifierProof) =
+                abi.decode(proof, (address, bytes));
             if (!approvedZK[zkAddr]) revert KYCFailed();
-            if (!IZKVerifier(zkAddr).verify(msg.sender, proof[20:]))
+            if (!IZKVerifier(zkAddr).verify(msg.sender, verifierProof))
                 revert KYCFailed();
         }
 
@@ -453,11 +519,12 @@ contract CrowdVault {
 
     function harvestYield() external {
         if (address(lender) == address(0)) revert NoLender();
-        uint256 lockedPrincipal = totalRaised - totalReleasedGlobal;
+        uint256 distributed = totalReleasedGlobal + totalAmmSeededGlobal;
+        uint256 lockedPrincipal = distributed >= totalRaised ? 0 : totalRaised - distributed;
         uint256 lenderBal = lender.balance();
         if (lenderBal <= lockedPrincipal) return;
         uint256 yieldAmt = lenderBal - lockedPrincipal;
-        lender.withdraw(yieldAmt, address(this));
+        lender.withdrawYield(yieldAmt, address(this));
         if (totalRaised > 0) {
             yieldIndex += (yieldAmt * ONE) / totalRaised;
         }
@@ -473,6 +540,16 @@ contract CrowdVault {
         emit YieldClaimed(msg.sender, amt);
     }
 
+    function pendingYield(address user) external view returns (uint256) {
+        uint256 pending = claimableYield[user];
+        uint256 stake = _totalStake(user);
+        uint256 last = userIndex[user] == 0 ? ONE : userIndex[user];
+        if (stake > 0 && yieldIndex > last) {
+            pending += (stake * (yieldIndex - last)) / ONE;
+        }
+        return pending;
+    }
+
     function verifyNextMilestone(
         uint256 projectId
     ) external onlyProjectFounder(projectId) {
@@ -483,12 +560,28 @@ contract CrowdVault {
         if (proj.fundingGoal != 0 && proj.totalRaised < proj.fundingGoal)
             revert FundingGoalNotMet();
         uint256 next = proj.currentMilestone + 1;
-        if (
-            address(oracle) != address(0) &&
-            !oracle.milestoneOk(projectId, next)
-        ) revert OracleNotOk();
         proj.currentMilestone = next;
         emit MilestoneVerified(projectId, next);
+    }
+
+    function claimInitialMilestoneRelease(
+        uint256 projectId
+    ) external onlyProjectFounder(projectId) {
+        Project storage proj = projects[projectId];
+        if (proj.fundingGoal != 0 && proj.totalRaised < proj.fundingGoal)
+            revert FundingGoalNotMet();
+        if (proj.currentMilestone != 0 || proj.totalReleased != 0)
+            revert MilestoneDone();
+        if (proj.fundingDeadline != 0 && block.timestamp <= proj.fundingDeadline)
+            revert DeadlineNotPassed();
+        _releaseInitialMilestone(projectId, proj);
+        _autoSeedAmm(projectId, proj);
+    }
+
+    function seedAmmPool(uint256 projectId) external validProject(projectId) {
+        Project storage proj = projects[projectId];
+        if (!this.ammProjectReady(projectId)) revert FundingGoalNotMet();
+        _autoSeedAmm(projectId, proj);
     }
 
     // ---- release ----
@@ -517,19 +610,55 @@ contract CrowdVault {
             revert VetoWindowOver();
         if (proj.releaseVetoed) revert AlreadyVetoed();
         if (hasVoted[projectId][msg.sender]) revert AlreadyVoted();
+        if (hasApproved[projectId][msg.sender]) revert AlreadyVoted();
 
         hasVoted[projectId][msg.sender] = true;
+        votedStake[projectId][msg.sender] = stake;
         vetoVoters[projectId].push(msg.sender);
         vetoVotes[projectId] += stake;
 
+        // Denominator = tokens in investor hands (exclude AMM pool-held tokens which can't vote)
+        uint256 totalSupply = commit.totalSupplyByProject(projectId);
+        uint256 ammHeld = address(amm) != address(0) ? commit.balanceOf(address(amm), projectId) : 0;
+        uint256 circulatingSupply = totalSupply > ammHeld ? totalSupply - ammHeld : totalSupply;
         if (
             vetoVotes[projectId] * 10_000 >=
-            proj.totalRaised * VETO_THRESHOLD_BPS
+            circulatingSupply * VETO_THRESHOLD_BPS
         ) {
             proj.releaseVetoed = true;
         }
 
         emit VetoedEvent(projectId, msg.sender);
+    }
+
+    function cancelVeto(uint256 projectId) external validProject(projectId) {
+        Project storage proj = projects[projectId];
+        if (proj.releaseRequestedAt == 0) revert NoRequest();
+        if (block.timestamp >= proj.releaseRequestedAt + VETO_WINDOW)
+            revert VetoWindowOver();
+        if (proj.releaseVetoed) revert AlreadyVetoed();
+        if (!hasVoted[projectId][msg.sender]) revert NotVetoed();
+
+        uint256 stake = votedStake[projectId][msg.sender];
+        votedStake[projectId][msg.sender] = 0;
+        hasVoted[projectId][msg.sender] = false;
+        if (vetoVotes[projectId] >= stake) {
+            vetoVotes[projectId] -= stake;
+        } else {
+            vetoVotes[projectId] = 0;
+        }
+
+        // Remove from voters array
+        address[] storage voters = vetoVoters[projectId];
+        for (uint256 i = 0; i < voters.length; i++) {
+            if (voters[i] == msg.sender) {
+                voters[i] = voters[voters.length - 1];
+                voters.pop();
+                break;
+            }
+        }
+
+        emit VetoCancelled(projectId, msg.sender);
     }
 
     function clearVeto(uint256 projectId) external validProject(projectId) {
@@ -538,14 +667,69 @@ contract CrowdVault {
         if (!proj.releaseVetoed) revert NotVetoed();
         proj.releaseVetoed = false;
         proj.releaseRequestedAt = 0;
+        proj.releaseApproved = false;
+        _clearVetoVotes(projectId);
+        _clearApprovalVotes(projectId);
+        activeReleaseCount--;
+        emit VetoCleared(projectId, msg.sender);
+    }
+
+    /// @notice Backers vote to APPROVE a pending release. When approvals reach
+    /// 30% of circulating stake, the tranche is released immediately without
+    /// waiting for the full veto window to elapse. A veto still blocks release.
+    function approveRelease(uint256 projectId) external validProject(projectId) {
+        uint256 stake = commit.balanceOf(msg.sender, projectId);
+        if (stake == 0) revert NotBacker();
+        Project storage proj = projects[projectId];
+        if (proj.releaseRequestedAt == 0) revert NoRequest();
+        if (block.timestamp >= proj.releaseRequestedAt + VETO_WINDOW)
+            revert VetoWindowOver();
+        if (proj.releaseVetoed) revert AlreadyVetoed();
+        if (hasApproved[projectId][msg.sender]) revert AlreadyVoted();
+        if (hasVoted[projectId][msg.sender]) revert AlreadyVoted();
+
+        hasApproved[projectId][msg.sender] = true;
+        approvedStake[projectId][msg.sender] = stake;
+        approveVoters[projectId].push(msg.sender);
+        approveVotes[projectId] += stake;
+
+        // Denominator = tokens in investor hands (exclude AMM pool-held tokens)
+        uint256 totalSupply = commit.totalSupplyByProject(projectId);
+        uint256 ammHeld = address(amm) != address(0) ? commit.balanceOf(address(amm), projectId) : 0;
+        uint256 circulatingSupply = totalSupply > ammHeld ? totalSupply - ammHeld : totalSupply;
+        if (
+            !proj.releaseApproved &&
+            approveVotes[projectId] * 10_000 >=
+            circulatingSupply * APPROVAL_THRESHOLD_BPS
+        ) {
+            proj.releaseApproved = true;
+            emit ReleaseApprovedThresholdMet(projectId);
+            emit ReleaseApproved(projectId, msg.sender);
+            _executeRelease(projectId, proj);
+            return;
+        }
+
+        emit ReleaseApproved(projectId, msg.sender);
+    }
+
+    function _clearVetoVotes(uint256 projectId) internal {
         vetoVotes[projectId] = 0;
         address[] storage voters = vetoVoters[projectId];
         for (uint256 i = 0; i < voters.length; i++) {
             hasVoted[projectId][voters[i]] = false;
+            votedStake[projectId][voters[i]] = 0;
         }
         delete vetoVoters[projectId];
-        activeReleaseCount--;
-        emit VetoCleared(projectId, msg.sender);
+    }
+
+    function _clearApprovalVotes(uint256 projectId) internal {
+        approveVotes[projectId] = 0;
+        address[] storage voters = approveVoters[projectId];
+        for (uint256 i = 0; i < voters.length; i++) {
+            hasApproved[projectId][voters[i]] = false;
+            approvedStake[projectId][voters[i]] = 0;
+        }
+        delete approveVoters[projectId];
     }
 
     function releasable(uint256 projectId) public view returns (uint256) {
@@ -553,9 +737,20 @@ contract CrowdVault {
         if (proj.founder == address(0)) return 0;
         uint256 unlocked = proj.currentMilestone == proj.milestoneCount
             ? proj.totalRaised
-            : (proj.totalRaised / proj.milestoneCount) * proj.currentMilestone;
-        if (unlocked <= proj.totalReleased) return 0;
-        return unlocked - proj.totalReleased;
+            : (proj.totalRaised * proj.currentMilestone) / proj.milestoneCount;
+        uint256 unavailable = proj.totalReleased + proj.totalAmmSeeded;
+        if (unlocked <= unavailable) return 0;
+        return unlocked - unavailable;
+    }
+
+    function ammProjectReady(uint256 projectId) external view returns (bool) {
+        if (projectId == 0 || projectId > projectCount) return false;
+        Project storage proj = projects[projectId];
+        return
+            proj.approved &&
+            proj.fundingGoal > 0 &&
+            proj.totalRaised >= proj.fundingGoal &&
+            (block.timestamp > proj.fundingDeadline || proj.currentMilestone > 0);
     }
 
     function executeRelease(
@@ -564,8 +759,13 @@ contract CrowdVault {
         Project storage proj = projects[projectId];
         if (proj.releaseRequestedAt == 0) revert NoRequest();
         if (proj.releaseVetoed) revert VetoActive();
-        if (block.timestamp < proj.releaseRequestedAt + VETO_WINDOW)
+        // Early release allowed if backers approve, otherwise wait for window
+        if (!proj.releaseApproved && block.timestamp < proj.releaseRequestedAt + VETO_WINDOW)
             revert VetoWindowNotOver();
+        _executeRelease(projectId, proj);
+    }
+
+    function _executeRelease(uint256 projectId, Project storage proj) internal {
         uint256 amt = releasable(projectId);
         if (amt == 0) revert NothingToRelease();
 
@@ -573,7 +773,10 @@ contract CrowdVault {
         totalReleasedGlobal += amt;
         proj.releaseRequestedAt = 0;
         proj.releaseVetoed = false;
+        proj.releaseApproved = false;
         activeReleaseCount--;
+        _clearVetoVotes(projectId);
+        _clearApprovalVotes(projectId);
 
         if (releaseFeeBps > 0 && revenueRouter != address(0)) {
             uint256 fee = (amt * releaseFeeBps) / 10_000;
@@ -585,12 +788,163 @@ contract CrowdVault {
         } else {
             _withdrawAndTransfer(proj.treasury, amt);
         }
+        // reset milestone deadline for the next milestone
+        if (proj.currentMilestone < proj.milestoneCount && proj.milestoneWindow > 0) {
+            proj.milestoneDeadline = block.timestamp + proj.milestoneWindow;
+        } else {
+            proj.milestoneDeadline = 0; // last milestone — no more deadlines
+        }
         emit FundsReleased(
             projectId,
             proj.currentMilestone,
             amt,
             proj.treasury
         );
+    }
+
+    // ---- milestone timeout ----
+
+    function triggerMilestoneTimeout(uint256 projectId) external validProject(projectId) {
+        Project storage proj = projects[projectId];
+        if (proj.projectDead) revert ProjectDead();
+        if (proj.milestoneDeadline == 0) revert NoMilestone();
+        if (block.timestamp <= proj.milestoneDeadline) revert MilestoneDeadlineNotPassed();
+        if (proj.timeoutActive) revert TimeoutAlreadyOpen();
+        if (proj.releaseRequestedAt != 0) revert ReleasePending();
+        if (commit.balanceOf(msg.sender, projectId) == 0) revert NotBacker();
+        proj.timeoutActive = true;
+        proj.timeoutOpenedAt = block.timestamp;
+        emit MilestoneTimeoutOpened(projectId, proj.milestoneDeadline);
+    }
+
+    function voteTimeout(uint256 projectId, bool extend) external validProject(projectId) {
+        Project storage proj = projects[projectId];
+        if (!proj.timeoutActive) revert NoTimeoutOpen();
+        if (block.timestamp > proj.timeoutOpenedAt + TIMEOUT_VOTE_WINDOW) revert TimeoutWindowNotOver();
+        if (hasVotedTimeout[projectId][msg.sender]) revert AlreadyVotedTimeout();
+        uint256 stake = commit.balanceOf(msg.sender, projectId);
+        if (stake == 0) revert NotBacker();
+        hasVotedTimeout[projectId][msg.sender] = true;
+        timeoutVotedStake[projectId][msg.sender] = stake;
+        timeoutVoters[projectId].push(msg.sender);
+        if (extend) {
+            timeoutVotesExtend[projectId] += stake;
+        } else {
+            timeoutVotesRefund[projectId] += stake;
+        }
+        emit TimeoutVoteCast(projectId, msg.sender, extend, stake);
+    }
+
+    function executeTimeoutOutcome(uint256 projectId) external validProject(projectId) {
+        Project storage proj = projects[projectId];
+        if (!proj.timeoutActive) revert NoTimeoutOpen();
+        if (block.timestamp <= proj.timeoutOpenedAt + TIMEOUT_VOTE_WINDOW) revert TimeoutWindowNotOver();
+
+        bool refundWins = timeoutVotesRefund[projectId] > timeoutVotesExtend[projectId];
+
+        // reset vote state
+        proj.timeoutActive = false;
+        proj.timeoutOpenedAt = 0;
+        timeoutVotesExtend[projectId] = 0;
+        timeoutVotesRefund[projectId] = 0;
+        address[] storage voters = timeoutVoters[projectId];
+        for (uint256 i = 0; i < voters.length; i++) {
+            hasVotedTimeout[projectId][voters[i]] = false;
+            timeoutVotedStake[projectId][voters[i]] = 0;
+        }
+        delete timeoutVoters[projectId];
+
+        if (refundWins) {
+            proj.projectDead = true;
+            proj.milestoneDeadline = 0;
+            emit TimeoutResolved(projectId, false);
+        } else {
+            // default: extend — reset deadline from now
+            proj.milestoneDeadline = block.timestamp + proj.milestoneWindow;
+            emit TimeoutResolved(projectId, true);
+        }
+    }
+
+    function claimTimeoutRefund(uint256 projectId) external validProject(projectId) {
+        Project storage proj = projects[projectId];
+        if (!proj.projectDead) revert ProjectDead();
+        uint256 userTokens = commit.balanceOf(msg.sender, projectId);
+        if (userTokens == 0) revert NotBacker();
+        _processRefund(projectId, proj, userTokens);
+    }
+
+    function claimVetoRefund(uint256 projectId) external validProject(projectId) {
+        Project storage proj = projects[projectId];
+        if (!proj.releaseVetoed) revert NotVetoed();
+        uint256 userTokens = commit.balanceOf(msg.sender, projectId);
+        if (userTokens == 0) revert NotBacker();
+        _processRefund(projectId, proj, userTokens);
+    }
+
+    function _processRefund(
+        uint256 projectId,
+        Project storage proj,
+        uint256 userTokens
+    ) internal {
+        uint256 totalSupply = commit.totalSupplyByProject(projectId);
+        if (totalSupply == 0) revert NothingToRefund();
+        uint256 unavailable = proj.totalReleased + proj.totalAmmSeeded;
+        if (proj.totalRaised <= unavailable) revert NothingToRefund();
+        uint256 refundable = proj.totalRaised - unavailable;
+        uint256 ammHeld = address(amm) != address(0)
+            ? commit.balanceOf(address(amm), projectId)
+            : 0;
+        uint256 circulatingSupply = totalSupply > ammHeld
+            ? totalSupply - ammHeld
+            : totalSupply;
+        if (circulatingSupply == 0) revert NothingToRefund();
+        uint256 refundAmt = (refundable * userTokens) / circulatingSupply;
+        if (refundAmt == 0) revert NothingToRefund();
+        _accrue(msg.sender);
+        commit.burn(projectId, msg.sender, userTokens);
+        proj.totalRaised -= refundAmt;
+        totalRaised = totalRaised >= refundAmt ? totalRaised - refundAmt : 0;
+        _withdrawAndTransfer(msg.sender, refundAmt);
+        emit Refunded(projectId, msg.sender, refundAmt);
+    }
+
+    function _releaseInitialMilestone(
+        uint256 projectId,
+        Project storage proj
+    ) internal {
+        if (proj.milestoneCount == 0) revert BadMilestones();
+        proj.currentMilestone = 1;
+        uint256 amt = releasable(projectId);
+        if (amt == 0) revert NothingToRelease();
+        proj.totalReleased += amt;
+        totalReleasedGlobal += amt;
+        _withdrawAndTransfer(proj.treasury, amt);
+        // start milestone clock if more milestones remain
+        if (proj.currentMilestone < proj.milestoneCount && proj.milestoneWindow > 0) {
+            proj.milestoneDeadline = block.timestamp + proj.milestoneWindow;
+        }
+        emit MilestoneVerified(projectId, 1);
+        emit FundsReleased(projectId, 1, amt, proj.treasury);
+    }
+
+    function _autoSeedAmm(uint256 projectId, Project storage proj) internal {
+        if (address(amm) == address(0) || ammSeedBps == 0) return;
+        if (amm.seeded(projectId)) return;
+
+        uint256 unavailable = proj.totalReleased + proj.totalAmmSeeded;
+        if (proj.totalRaised <= unavailable) return;
+
+        uint256 seedAmount = (proj.totalRaised * ammSeedBps) / 10_000;
+        uint256 remaining = proj.totalRaised - unavailable;
+        if (seedAmount > remaining) seedAmount = remaining;
+        if (seedAmount == 0) return;
+
+        proj.totalAmmSeeded += seedAmount;
+        totalAmmSeededGlobal += seedAmount;
+        _withdrawAndTransfer(address(amm), seedAmount);
+        commit.mint(projectId, address(amm), seedAmount);
+        amm.seedFromVault(projectId, seedAmount, seedAmount);
+        emit AmmSeeded(projectId, seedAmount, seedAmount);
     }
 
     function _withdrawAndTransfer(address to, uint256 amt) internal {

@@ -7,9 +7,9 @@ dataSources:
     name: CrowdVault
     network: sepolia
     source:
-      address: "0x667bB28aA3e9382885A76c8893Bcd2a05B51498a"
+      address: "0xa95bf6334783F41dc3a7A7eB35AbF7d49eB68ADd"
       abi: CrowdVault
-      startBlock: 0
+      startBlock: 10964400
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -52,15 +52,17 @@ dataSources:
     name: CommitmentAMM
     network: sepolia
     source:
-      address: "0x8cAD9636362dC69beaA36E39D8e58a9Bd79Ea75a"
+      address: "0x5932a623438d3E3701f90aA04A61A43230Ac71Ba"
       abi: CommitmentAMM
-      startBlock: 0
+      startBlock: 10964400
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
       language: wasm/assemblyscript
       entities:
         - Pool
+        - PoolSeed
+        - AmmTransaction
         - Swap
         - PoolHourData
         - PoolDayData

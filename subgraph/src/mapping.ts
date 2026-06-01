@@ -20,9 +20,11 @@ import {
 } from "../generated/CommitmentAMM/CommitmentAMM";
 import {
   Investment,
+  AmmTransaction,
   Pool,
   PoolDayData,
   PoolHourData,
+  PoolSeed,
   Project,
   ProjectUser,
   Swap,
@@ -36,7 +38,7 @@ const ZERO_BI = BigInt.fromI32(0);
 const ONE_BI = BigInt.fromI32(1);
 const ZERO_BD = BigDecimal.fromString("0");
 const DEFAULT_FEE_BPS = BigInt.fromI32(30);
-const USDC_ADDRESS = "0x3459109957cd4bdc19f100ed9d6d703329b26cae";
+const USDC_ADDRESS = "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238";
 
 function exp10(decimals: i32): BigInt {
   let result = ONE_BI;
@@ -82,6 +84,13 @@ function minBd(a: BigDecimal, b: BigDecimal): BigDecimal {
 
 function safeSub(a: BigInt, b: BigInt): BigInt {
   return a.ge(b) ? a.minus(b) : ZERO_BI;
+}
+
+function spotPrice(reserveUsdc: BigInt, reserveCommit: BigInt): BigDecimal {
+  if (reserveCommit.equals(ZERO_BI)) return ZERO_BD;
+  return toDecimal(reserveUsdc, USDC_DECIMALS).div(
+    toDecimal(reserveCommit, COMMIT_DECIMALS),
+  );
 }
 
 function getOrCreateProject(projectId: BigInt, timestamp: BigInt, block: BigInt): Project {
@@ -144,10 +153,14 @@ function getOrCreatePool(projectId: BigInt, timestamp: BigInt, block: BigInt): P
     pool.reserveCommit = ZERO_BI;
     pool.seeded = false;
     pool.feeBps = DEFAULT_FEE_BPS;
+    pool.spotPriceUsdcPerCommit = ZERO_BD;
     pool.lastPrice = ZERO_BD;
     pool.volumeUsdc = ZERO_BD;
     pool.volumeCommit = ZERO_BD;
     pool.swapCount = ZERO_BI;
+    pool.seedCount = ZERO_BI;
+    pool.firstSeededAt = ZERO_BI;
+    pool.latestSeededAt = ZERO_BI;
     pool.updatedAt = timestamp;
     pool.updatedAtBlock = block;
     pool.save();
@@ -198,6 +211,38 @@ function getOrCreateDayData(pool: Pool, timestamp: BigInt, price: BigDecimal): P
 function updateProjectTimestamp(project: Project, ts: BigInt, block: BigInt): void {
   project.updatedAt = ts;
   project.updatedAtBlock = block;
+}
+
+function saveAmmTransaction(
+  id: string,
+  txHash: Bytes,
+  logIndex: BigInt,
+  project: Project,
+  pool: Pool,
+  kind: string,
+  user: Address,
+  amountUsdc: BigInt,
+  amountCommit: BigInt,
+  price: BigDecimal,
+  timestamp: BigInt,
+  block: BigInt,
+): void {
+  const tx = new AmmTransaction(id);
+  tx.txHash = txHash;
+  tx.logIndex = logIndex;
+  tx.project = project.id;
+  tx.pool = pool.id;
+  tx.projectId = pool.projectId;
+  tx.kind = kind;
+  tx.user = user;
+  tx.amountUsdc = amountUsdc;
+  tx.amountCommit = amountCommit;
+  tx.priceUsdcPerCommit = price;
+  tx.reserveUsdcAfter = pool.reserveUsdc;
+  tx.reserveCommitAfter = pool.reserveCommit;
+  tx.timestamp = timestamp;
+  tx.blockNumber = block;
+  tx.save();
 }
 
 export function handleProjectCreated(event: ProjectCreated): void {
@@ -376,27 +421,101 @@ export function handleSeeded(event: Seeded): void {
   pool.reserveUsdc = event.params.usdcIn;
   pool.reserveCommit = event.params.commitIn;
   pool.seeded = true;
-  if (event.params.commitIn.gt(ZERO_BI)) {
-    pool.lastPrice = toDecimal(event.params.usdcIn, USDC_DECIMALS).div(
-      toDecimal(event.params.commitIn, COMMIT_DECIMALS),
-    );
+  pool.spotPriceUsdcPerCommit = spotPrice(pool.reserveUsdc, pool.reserveCommit);
+  pool.lastPrice = pool.spotPriceUsdcPerCommit;
+  const previousSeedCount = pool.seedCount;
+  pool.seedCount = previousSeedCount.plus(ONE_BI);
+  if (previousSeedCount.equals(ZERO_BI)) {
+    pool.firstSeededAt = event.block.timestamp;
   }
+  pool.latestSeededAt = event.block.timestamp;
   pool.updatedAt = event.block.timestamp;
   pool.updatedAtBlock = event.block.number;
   pool.save();
+
+  const id = eventId(event.transaction.hash, event.logIndex);
+  const seed = new PoolSeed(id);
+  seed.txHash = event.transaction.hash;
+  seed.logIndex = event.logIndex;
+  seed.project = project.id;
+  seed.pool = pool.id;
+  seed.projectId = event.params.projectId;
+  seed.usdcIn = event.params.usdcIn;
+  seed.commitIn = event.params.commitIn;
+  seed.priceUsdcPerCommit = pool.spotPriceUsdcPerCommit;
+  seed.reserveUsdcAfter = pool.reserveUsdc;
+  seed.reserveCommitAfter = pool.reserveCommit;
+  seed.timestamp = event.block.timestamp;
+  seed.blockNumber = event.block.number;
+  seed.save();
+
+  const hour = getOrCreateHourData(pool, event.block.timestamp, pool.spotPriceUsdcPerCommit);
+  hour.high = maxBd(hour.high, pool.spotPriceUsdcPerCommit);
+  hour.low = minBd(hour.low, pool.spotPriceUsdcPerCommit);
+  hour.close = pool.spotPriceUsdcPerCommit;
+  hour.volumeUsdc = hour.volumeUsdc.plus(toDecimal(event.params.usdcIn, USDC_DECIMALS));
+  hour.volumeCommit = hour.volumeCommit.plus(toDecimal(event.params.commitIn, COMMIT_DECIMALS));
+  hour.save();
+
+  const day = getOrCreateDayData(pool, event.block.timestamp, pool.spotPriceUsdcPerCommit);
+  day.high = maxBd(day.high, pool.spotPriceUsdcPerCommit);
+  day.low = minBd(day.low, pool.spotPriceUsdcPerCommit);
+  day.close = pool.spotPriceUsdcPerCommit;
+  day.volumeUsdc = day.volumeUsdc.plus(toDecimal(event.params.usdcIn, USDC_DECIMALS));
+  day.volumeCommit = day.volumeCommit.plus(toDecimal(event.params.commitIn, COMMIT_DECIMALS));
+  day.save();
+
+  saveAmmTransaction(
+    id,
+    event.transaction.hash,
+    event.logIndex,
+    project,
+    pool,
+    "SEED",
+    Address.zero(),
+    event.params.usdcIn,
+    event.params.commitIn,
+    pool.spotPriceUsdcPerCommit,
+    event.block.timestamp,
+    event.block.number,
+  );
 
   updateProjectTimestamp(project, event.block.timestamp, event.block.number);
   project.save();
 }
 
 export function handleLiquidityRemoved(event: LiquidityRemoved): void {
+  const project = getOrCreateProject(
+    event.params.projectId,
+    event.block.timestamp,
+    event.block.number,
+  );
   const pool = getOrCreatePool(event.params.projectId, event.block.timestamp, event.block.number);
   pool.reserveUsdc = ZERO_BI;
   pool.reserveCommit = ZERO_BI;
   pool.seeded = false;
+  pool.spotPriceUsdcPerCommit = ZERO_BD;
   pool.updatedAt = event.block.timestamp;
   pool.updatedAtBlock = event.block.number;
   pool.save();
+
+  saveAmmTransaction(
+    eventId(event.transaction.hash, event.logIndex),
+    event.transaction.hash,
+    event.logIndex,
+    project,
+    pool,
+    "LIQUIDITY_REMOVED",
+    Address.zero(),
+    event.params.usdcOut,
+    event.params.commitOut,
+    ZERO_BD,
+    event.block.timestamp,
+    event.block.number,
+  );
+
+  updateProjectTimestamp(project, event.block.timestamp, event.block.number);
+  project.save();
 }
 
 export function handleFeeSet(event: FeeSet): void {
@@ -433,6 +552,7 @@ export function handleSwap(event: SwapEvent): void {
     pool.reserveCommit = pool.reserveCommit.plus(event.params.amountIn);
     pool.reserveUsdc = safeSub(pool.reserveUsdc, event.params.amountOut);
   }
+  pool.spotPriceUsdcPerCommit = spotPrice(pool.reserveUsdc, pool.reserveCommit);
   pool.lastPrice = price;
   pool.volumeUsdc = pool.volumeUsdc.plus(usdcAmount);
   pool.volumeCommit = pool.volumeCommit.plus(commitAmount);
@@ -440,6 +560,8 @@ export function handleSwap(event: SwapEvent): void {
   pool.updatedAt = event.block.timestamp;
   pool.updatedAtBlock = event.block.number;
   pool.save();
+
+  getOrCreateProjectUser(event.params.projectId, event.params.user, event.block.timestamp);
 
   const hour = getOrCreateHourData(pool, event.block.timestamp, price);
   hour.high = maxBd(hour.high, price);
@@ -473,10 +595,28 @@ export function handleSwap(event: SwapEvent): void {
   swap.amountInUsdc = usdcIn ? toDecimal(event.params.amountIn, USDC_DECIMALS) : ZERO_BD;
   swap.amountOutUsdc = usdcOut ? toDecimal(event.params.amountOut, USDC_DECIMALS) : ZERO_BD;
   swap.priceUsdcPerCommit = price;
+  swap.reserveUsdcAfter = pool.reserveUsdc;
+  swap.reserveCommitAfter = pool.reserveCommit;
+  swap.spotPriceUsdcPerCommitAfter = pool.spotPriceUsdcPerCommit;
   swap.side = usdcIn ? "BUY" : "SELL";
   swap.timestamp = event.block.timestamp;
   swap.blockNumber = event.block.number;
   swap.save();
+
+  saveAmmTransaction(
+    swap.id,
+    event.transaction.hash,
+    event.logIndex,
+    project,
+    pool,
+    usdcIn ? "BUY" : "SELL",
+    event.params.user,
+    usdcAmountRaw,
+    commitAmountRaw,
+    price,
+    event.block.timestamp,
+    event.block.number,
+  );
 
   updateProjectTimestamp(project, event.block.timestamp, event.block.number);
   project.save();

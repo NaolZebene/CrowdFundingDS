@@ -16,12 +16,21 @@ export interface MarketProject {
   founder: string;
   milestoneCount: number;
   totalRaised: number;
+  totalReleased: number;
   currentMilestone: number;
   metadataUri: string;
   fundingGoal: number;
   fundingDeadline: bigint;
   approved: boolean;
   daysLeft: number;
+  isExpired: boolean;
+  goalMet: boolean;
+  fundingClosed: boolean;
+  milestoneWindow: number;
+  milestoneDeadline: bigint;
+  timeoutActive: boolean;
+  timeoutOpenedAt: number;
+  projectDead: boolean;
 }
 
 function daysLeft(deadline: bigint): number {
@@ -29,19 +38,16 @@ function daysLeft(deadline: bigint): number {
   return Math.max(0, Math.ceil(secs / 86400));
 }
 
+function isExpired(deadline: bigint): boolean {
+  return Number(deadline) <= Math.floor(Date.now() / 1000);
+}
+
 export function useMarketsData() {
-  /* ── project count & TVL ── */
+  /* ── project count ── */
   const { data: projectCountRaw } = useReadContract({
     address: CONTRACTS.VAULT,
     abi: VAULT_ABI,
     functionName: "projectCount",
-    query: { refetchInterval: 5000 },
-  });
-
-  const { data: tvlRaw, refetch: refetchTvl } = useReadContract({
-    address: CONTRACTS.VAULT,
-    abi: VAULT_ABI,
-    functionName: "totalRaised",
     query: { refetchInterval: 5000 },
   });
 
@@ -73,8 +79,13 @@ export function useMarketsData() {
         const r = res.result as readonly [
           string, string, bigint, bigint, bigint,
           bigint, bigint, boolean, string, bigint, bigint, boolean,
-          string, string, string,
+          string, string, string, bigint,
+          bigint, bigint, boolean, bigint, boolean, boolean,
         ];
+        const totalRaised = toUSDC(r[3]);
+        const fundingGoal = toUSDC(r[9]);
+        const expired = isExpired(r[10]);
+        const goalMet = fundingGoal > 0 && totalRaised >= fundingGoal;
         return {
           id:               i + 1,
           name:             r[12] || `Project #${i + 1}`,
@@ -83,25 +94,50 @@ export function useMarketsData() {
           offchainMetadataUri: r[8] || "",
           founder:          r[0],
           milestoneCount:   Number(r[2]),
-          totalRaised:      toUSDC(r[3]),
+          totalRaised,
+          totalReleased:    toUSDC(r[4]),
           currentMilestone: Number(r[5]),
           metadataUri:      r[8],
-          fundingGoal:      toUSDC(r[9]),
+          fundingGoal,
           fundingDeadline:  r[10],
           approved:         r[11],
           daysLeft:         daysLeft(r[10]),
+          isExpired:        expired,
+          goalMet,
+          fundingClosed:    expired, // Only close when deadline passes, not when goal met
+          milestoneWindow:  Number(r[16]),
+          milestoneDeadline: r[17],
+          timeoutActive:    r[18],
+          timeoutOpenedAt:  Number(r[19]),
+          projectDead:      r[20],
         } satisfies MarketProject;
       })
       .filter(Boolean) as MarketProject[];
   }, [projectsRaw]);
 
+  const stats = useMemo(() => {
+    const now = Math.floor(Date.now() / 1000);
+    return projects.reduce(
+      (acc, project) => {
+        acc.totalRaised += project.totalRaised;
+        acc.tvl += Math.max(0, project.totalRaised - project.totalReleased);
+        if (project.approved && Number(project.fundingDeadline) > now && !project.goalMet) {
+          acc.activeProjectCount += 1;
+        }
+        return acc;
+      },
+      { totalRaised: 0, tvl: 0, activeProjectCount: 0 },
+    );
+  }, [projects]);
+
   return {
     projects,
-    tvl: tvlRaw ? toUSDC(tvlRaw as bigint) : 0,
+    totalRaised: stats.totalRaised,
+    tvl: stats.tvl,
+    activeProjectCount: stats.activeProjectCount,
     isLoading: count > 0 && !projectsRaw,
     refetch: () => {
       void refetchProjects();
-      void refetchTvl();
     },
   };
 }
