@@ -132,22 +132,151 @@ The full lifecycle of a project on CrowdFundingDS:
 
 Before diving into the code, here are the key DeFi primitives this project uses:
 
+### CommitToken (ERC-1155)
+
+The `CommitmentToken` is an **ERC-1155 multi-token contract** that represents backer stakes in individual projects.
+
+#### Why We Use ERC-1155
+
+Each project on CrowdFundingDS has its own token class — backers who invest in Project #3 receive **COMMIT tokens with token ID = 3**. This design lets us:
+
+- **Track ownership per-project** — each token ID maps to exactly one project
+- **Batch operations** — ERC-1155 allows transferring multiple token types in a single transaction
+- **Unified interface** — one contract handles all projects instead of deploying a new ERC-20 for each
+- **AMM compatibility** — the AMM swaps specific project tokens using their ID
+
+When a backer invests `100 USDC` in Project #3, they receive `100 COMMIT` tokens (token ID 3). These tokens serve as:
+- **Proof of stake** — used to calculate voting power in governance (veto, approve release)
+- **Yield entitlement** — backers claim yield proportional to their token balance
+- **Trading asset** — after milestones complete, tokens trade on the AMM
+
+### CrowdVault
+
+The `CrowdVault` is the **core orchestration contract** that manages the entire crowdfunding lifecycle.
+
+#### What It Does
+
+The vault is the single entry point for all major operations:
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    CrowdVault                         │
+│                                                      │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
+│   │  Project    │  │  Funding    │  │ Milestone   │  │
+│   │  Registry   │  │  Management │  │  Governance │  │
+│   └─────────────┘  └─────────────┘  └─────────────┘  │
+│          │                │                │          │
+│          ▼                ▼                ▼          │
+│   ┌─────────────────────────────────────────────┐    │
+│   │          USDC Custody & Routing               │    │
+│   └─────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────┘
+```
+
+**Key responsibilities:**
+
+- **Project lifecycle**: Creates, approves, and tracks projects with milestones
+- **Funding custody**: Holds all USDC deposits from backers during the funding round
+- **Governance**: Manages veto votes, approval votes, and timeout resolutions
+- **Fund releases**: Calculates releasable amounts and routes them to treasuries (minus fees)
+- **AMM seeding**: After milestones complete, sends USDC + minted COMMIT tokens to the AMM
+- **Yield distribution**: Harvests yield from the lender and lets backers claim their share
+- **KYC verification**: Accepts proofs from ZK verifiers to gate investment access
+
+Every USDC that enters or leaves the system flows through the vault. It is the **single source of truth** for project state, backer stakes, and fund movements.
+
 ### AMM (Automated Market Maker)
 
-The `CommitmentAMM` is a **constant-product AMM** (`x * y = k`) that allows trading project COMMIT tokens against USDC. After a project completes all milestones, the vault seeds the AMM pool with USDC and minted COMMIT tokens, creating a liquid market for backers to exit or speculate.
+The `CommitmentAMM` is a **constant-product AMM** (`x * y = k`) that allows trading project COMMIT tokens against USDC.
 
-- **Fee**: 0.30% per swap (configurable by admin)
-- **Price discovery**: Determined by pool reserves, no external oracle needed
-- **Liquidity**: Single-sided seeding from the vault (no LP tokens)
+#### Why We Use an AMM
+
+After a project completes all milestones and releases all funds, backers still hold **COMMIT tokens** — but the project treasury no longer needs those USDC deposits. Without a secondary market, backers would be stuck with illiquid tokens.
+
+The AMM creates a **liquid exit path**:
+- **Backers can sell** their COMMIT tokens back to USDC at any time
+- **New buyers can enter** and speculate on project success
+- **Price discovery** happens naturally through supply and demand in the pool
+- **No order books or matching** — the pool automatically quotes prices
+
+Unlike listing on a centralized exchange or an external DEX (like Uniswap), this **built-in AMM** is purpose-built for project tokens and seeded automatically by the vault, ensuring liquidity exists from day one.
+
+#### How It Works
+
+When a project finishes its final milestone, the vault automatically seeds the AMM pool:
+
+```
+All milestones complete
+       │
+       ▼
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  CrowdVault  │────▶│ Commitment  │────▶│    AMM      │
+│  (releases   │     │   Token     │     │   Pool      │
+│   final funds)│     │ (mint tokens)│     │ (seeded with│
+└─────────────┘     └─────────────┘     │  USDC + COMMIT)│
+                                        └──────┬──────┘
+                                               │
+                              ┌────────────────┼────────────────┐
+                              ▼                ▼                ▼
+                        ┌──────────┐    ┌──────────┐    ┌──────────┐
+                        │  Backer  │    │  Backer  │    │  New     │
+                        │  Sells   │    │  Buys    │    │  Buyer   │
+                        │  COMMIT  │    │  More    │    │  Enters  │
+                        └──────────┘    └──────────┘    └──────────┘
+```
+
+#### Mechanics
+
+- **Pool formula**: `reserve_USDC * reserve_COMMIT = constant` — as one token is bought, its price rises
+- **Fee**: 0.30% per swap, configurable by admin (max 10%)
+- **Price discovery**: No external oracle — price is determined purely by pool reserves
+- **Liquidity**: Single-sided seeding from the vault. No LP tokens, no impermanent loss for backers
+- **Slippage**: Large trades move the price more. UI shows estimated slippage before execution.
 
 ### Lender (Yield Module)
 
-The `MockLender` is a testing module that simulates a DeFi lending protocol. The vault deposits idle USDC into the lender. Yield is generated by:
+The `MockLender` is a testing module that simulates a DeFi lending protocol. The vault deposits idle USDC into the lender, which generates yield that backers can claim proportionally to their COMMIT holdings.
 
-1. **Direct injection**: Admin calls `addYield()` to deposit USDC directly
-2. **Reserve dripping**: Admin funds a reserve, then `dripReserveYield()` moves a tiny portion into claimable yield based on `dripBps`
+#### Why We Use a Lender
 
-Backers claim their proportional share of harvested yield through `CrowdVault.claimYield()`.
+When backers invest USDC into a project, their capital sits in the `CrowdVault` between the **funding close** and **milestone releases**. During this period — which can span weeks or months — that capital is effectively **idle**. Instead of letting it sit unused, CrowdFundingDS deposits it into a lending protocol to **generate yield**.
+
+This creates a **win-win**:
+- **Backers earn passive yield** proportional to their COMMIT holdings, rewarding them for locking capital
+- **Founders benefit** from a more attractive platform where investors are incentivized to commit early
+- **Capital efficiency** — no dollar sits idle; every invested USDC works while waiting for milestone completion
+
+In a production environment, this would integrate with **Aave** or **Compound**. For testing on Sepolia, `MockLender` simulates this behavior.
+
+#### How Yield Flows
+
+```
+Backers invest USDC
+       │
+       ▼
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  CrowdVault  │────▶│ MockLender  │────▶│  Yield      │
+│  (holds      │     │ (deposits    │     │  Harvested  │
+│   principal) │     │  principal)  │     │  by vault    │
+└─────────────┘     └─────────────┘     └──────┬──────┘
+                                                │
+                                                ▼
+                                         ┌─────────────┐
+                                         │  Backers    │
+                                         │  Claim      │
+                                         │  (pro-rata) │
+                                         └─────────────┘
+```
+
+#### Yield Generation Methods
+
+The `MockLender` supports two ways to generate test yield:
+
+1. **Direct injection**: Admin calls `addYield()` to instantly deposit USDC as accrued yield
+2. **Reserve dripping**: Admin funds a reserve pool, then `dripReserveYield()` moves a small portion (`dripBps = 0.01%` of total supplied) into claimable yield on each call. This simulates slow, steady yield accrual like a real lending market.
+
+Backers claim their proportional share of harvested yield through `CrowdVault.claimYield()`. The yield is distributed based on COMMIT token holdings — the more you invested, the more yield you earn.
 
 ### The Graph (Subgraph)
 
