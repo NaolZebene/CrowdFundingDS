@@ -6,8 +6,6 @@ type DeployedAddresses = {
   TREASURY: string;
   COMMIT: string;
   LENDER: string;
-  ZKVER: string;
-  WORLDID_VERIFIER: string;
   VAULT: string;
   ROUTER: string;
   AMM_ADDR: string;
@@ -27,8 +25,6 @@ export const ADDR = {
   TREASURY: "${addresses.TREASURY}",
   COMMIT: "${addresses.COMMIT}",
   LENDER: "${addresses.LENDER}",
-  ZKVER: "${addresses.ZKVER}",
-  WORLDID_VERIFIER: "${addresses.WORLDID_VERIFIER}",
   VAULT: "${addresses.VAULT}",
   AMM_ADDR: "${addresses.AMM_ADDR}",
   ROUTER: "${addresses.ROUTER}"
@@ -41,8 +37,6 @@ export const CONTRACTS = {
   TREASURY: "${addresses.TREASURY}" as \`0x\${string}\`,
   COMMIT: "${addresses.COMMIT}" as \`0x\${string}\`,
   LENDER: "${addresses.LENDER}" as \`0x\${string}\`,
-  ZKVER: "${addresses.ZKVER}" as \`0x\${string}\`,
-  WORLDID_VERIFIER: "${addresses.WORLDID_VERIFIER}" as \`0x\${string}\`,
   VAULT: "${addresses.VAULT}" as \`0x\${string}\`,
   ROUTER: "${addresses.ROUTER}" as \`0x\${string}\`,
   AMM: "${addresses.AMM_ADDR}" as \`0x\${string}\`,
@@ -91,62 +85,40 @@ async function main() {
   // 2) MockLender — deterministic lender for manual yield seeding
   const existingLender = process.env.LENDER_ADDRESS?.trim();
   let LENDER: string;
+  let lender: any;
   if (existingLender && /^0x[a-fA-F0-9]{40}$/.test(existingLender)) {
     LENDER = existingLender;
     console.log("MockLender (preserved):", LENDER);
   } else {
     const MockLender = await ethers.getContractFactory("MockLender");
-    const lender = await MockLender.deploy(USDC);
+    lender = await MockLender.deploy(USDC);
     await lender.waitForDeployment();
     LENDER = await lender.getAddress();
     console.log("MockLender (new):", LENDER);
   }
 
-  // 3) MockZKVerifier — simulates KYC; call setKyc(address, true) to approve a user
-  const MockZKVerifier = await ethers.getContractFactory("MockZKVerifier");
-  const zkVerifier = await MockZKVerifier.deploy();
-  await zkVerifier.waitForDeployment();
-  const ZKVER = await zkVerifier.getAddress();
-  console.log("MockZKVerifier:", ZKVER);
-  // KYC-approve the deployer so they can invest in KYC-gated projects
-  await (await zkVerifier.setKyc(deployerAddr, true)).wait();
-  console.log("Deployer KYC approved in MockZKVerifier");
-
-  // 3b) WorldIDVerifierAdapter — wraps Worldcoin World ID Router on Sepolia.
-  //     Investors with a real World ID proof can pass it to invest() for sybil resistance.
-  //     Empty proof ("0x") still works for all users — this is purely opt-in.
-  const WORLDID_ROUTER = "0x469449f251692E0779667583026b5A1E99512157";
-  const worldIdAppId = process.env.WORLDID_APP_ID?.trim() || "app_crowdfundingds_staging";
-  const worldIdActionId = process.env.WORLDID_ACTION_ID?.trim() || "invest";
-  const WorldIDVerifierAdapter = await ethers.getContractFactory("WorldIDVerifierAdapter");
-  const worldIdVerifier = await WorldIDVerifierAdapter.deploy(WORLDID_ROUTER, worldIdAppId, worldIdActionId);
-  await worldIdVerifier.waitForDeployment();
-  const WORLDID_VERIFIER = await worldIdVerifier.getAddress();
-  console.log("WorldIDVerifierAdapter:", WORLDID_VERIFIER);
-  console.log("  app_id:", worldIdAppId, "| action_id:", worldIdActionId);
-
-  // 4) CommitmentToken
+  // 3) CommitmentToken
   const CommitmentToken = await ethers.getContractFactory("CommitmentToken");
   const commit = await CommitmentToken.deploy(deployerAddr, "Nest Token", "NST");
   await commit.waitForDeployment();
   const COMMIT = await commit.getAddress();
   console.log("CommitmentToken:", COMMIT);
 
-  // 5) CrowdVault
-  const Vault = await ethers.getContractFactory("CrowdVault");
-  const vault = await Vault.deploy(USDC, COMMIT);
-  await vault.waitForDeployment();
-  const VAULT = await vault.getAddress();
-  console.log("CrowdVault:", VAULT);
-
-  // 6) RevenueRouter
+  // 4) RevenueRouter
   const Router = await ethers.getContractFactory("RevenueRouter");
-  const router = await Router.deploy(USDC, TREASURY, 1000); // 10% to backers
+  const router = await Router.deploy(USDC);
   await router.waitForDeployment();
   const ROUTER = await router.getAddress();
   console.log("RevenueRouter:", ROUTER);
 
-  // 7) CommitmentAMM
+  // 5) CrowdVault
+  const Vault = await ethers.getContractFactory("CrowdVault");
+  const vault = await Vault.deploy(USDC, COMMIT, ROUTER);
+  await vault.waitForDeployment();
+  const VAULT = await vault.getAddress();
+  console.log("CrowdVault:", VAULT);
+
+  // 6) CommitmentAMM
   const AMM = await ethers.getContractFactory("CommitmentAMM");
   const amm = await AMM.deploy(USDC, COMMIT, VAULT);
   await amm.waitForDeployment();
@@ -154,11 +126,12 @@ async function main() {
   console.log("CommitmentAMM:", AMM_ADDR);
 
   // Wire everything
+  await (await router.setVault(VAULT)).wait();
   await (await commit.setMinter(VAULT)).wait();
+  if (lender) {
+    await (await lender.setWithdrawer(VAULT)).wait();
+  }
   await (await vault.setLender(LENDER)).wait();
-  await (await vault.addZK(ZKVER)).wait();
-  await (await vault.addZK(WORLDID_VERIFIER)).wait(); // real World ID proofs also accepted
-  await (await vault.setRevenueRouter(ROUTER)).wait();
   await (await vault.setAMM(AMM_ADDR)).wait();
   await (await vault.setReleaseFeeBps(100)).wait(); // 1% release fee
   console.log("All modules wired");
@@ -173,8 +146,6 @@ async function main() {
     TREASURY,
     COMMIT,
     LENDER,
-    ZKVER,
-    WORLDID_VERIFIER,
     VAULT,
     ROUTER,
     AMM_ADDR,

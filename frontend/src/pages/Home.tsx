@@ -150,7 +150,16 @@ function ProjectCard({
           )}
         </div>
         <div className="absolute bottom-3 left-3 right-3">
-          <h3 className="font-bold text-sm text-white leading-snug line-clamp-1">{project.name}</h3>
+          <div className="flex items-center gap-2">
+            {project.iconUrl && (
+              <img
+                src={project.iconUrl}
+                alt=""
+                className="w-8 h-8 rounded-md border border-white/20 bg-black/30 object-cover shrink-0"
+              />
+            )}
+            <h3 className="font-bold text-sm text-white leading-snug line-clamp-1">{project.name}</h3>
+          </div>
         </div>
       </div>
 
@@ -288,7 +297,16 @@ function ProjectDetailsModal({
                 </span>
               )}
             </div>
-            <h2 className="text-xl font-bold text-white drop-shadow-lg">{project.name}</h2>
+            <div className="flex items-center gap-3">
+              {project.iconUrl && (
+                <img
+                  src={project.iconUrl}
+                  alt=""
+                  className="w-10 h-10 rounded-lg border border-white/20 bg-black/30 object-cover shrink-0"
+                />
+              )}
+              <h2 className="text-xl font-bold text-white drop-shadow-lg">{project.name}</h2>
+            </div>
           </div>
         </div>
 
@@ -399,6 +417,22 @@ function ProjectDetailsModal({
           )}
 
           <div className="space-y-2">
+            <div className="bg-secondary/30 border border-border rounded-md p-3">
+              <p className="text-[11px] text-muted-foreground mb-1">Project Icon URL</p>
+              {project.iconUrl ? (
+                <a
+                  href={project.iconUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-primary break-all inline-flex items-center gap-1 hover:underline"
+                >
+                  {project.iconUrl} <ExternalLink className="w-3 h-3" />
+                </a>
+              ) : (
+                <p className="text-xs text-muted-foreground">Not provided</p>
+              )}
+            </div>
+
             <div className="bg-secondary/30 border border-border rounded-md p-3">
               <p className="text-[11px] text-muted-foreground mb-1">Metadata URI</p>
               {project.offchainMetadataUri ? (

@@ -8,80 +8,53 @@ interface IERC20Pay {
 
 contract RevenueRouter {
     IERC20Pay public immutable usdc;
-    address public immutable treasury;
+    address public vault;
     address public admin;
-
-    uint256 public backersBps;
-
-    mapping(address => uint256) public weight;
-    uint256 public totalWeight;
-
-    uint256 public totalBackersAccrued;
-    mapping(address => uint256) public claimed;
+    uint256 public totalRevenueReceived;
+    uint256 public totalCollected;
 
     error NotAdmin();
-    error BadBps();
-    error LengthMismatch();
+    error NotVault();
+    error VaultAlreadySet();
     error ZeroAmount();
     error TransferFailed();
-    error NoWeight();
     error NothingToClaim();
 
-    event RevenueReceived(uint256 amount, uint256 toBackers, uint256 toTreasury);
-    event WeightsSet(uint256 totalWeight);
-    event Claimed(address indexed user, uint256 amount);
+    event RevenueReceived(uint256 amount);
+    event Collected(address indexed admin, uint256 amount);
 
     modifier onlyAdmin() {
         if (msg.sender != admin) revert NotAdmin();
         _;
     }
 
-    constructor(address usdc_, address treasury_, uint256 backersBps_) {
-        if (backersBps_ > 10_000) revert BadBps();
+    modifier onlyVault() {
+        if (msg.sender != vault) revert NotVault();
+        _;
+    }
+
+    constructor(address usdc_) {
         usdc = IERC20Pay(usdc_);
-        treasury = treasury_;
-        backersBps = backersBps_;
         admin = msg.sender;
     }
 
-    function setWeights(address[] calldata users, uint256[] calldata w) external onlyAdmin {
-        if (users.length != w.length) revert LengthMismatch();
-
-        // remove old weights from total first
-        for (uint256 i = 0; i < users.length; i++) {
-            totalWeight -= weight[users[i]];
-            weight[users[i]] = w[i];
-            totalWeight += w[i];
-        }
-
-        emit WeightsSet(totalWeight);
+    function setVault(address vault_) external onlyAdmin {
+        if (vault != address(0)) revert VaultAlreadySet();
+        vault = vault_;
     }
 
-    function onRevenue(uint256 amount) external {
+    function onRevenue(uint256 amount) external onlyVault {
         if (amount == 0) revert ZeroAmount();
         if (!usdc.transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
-
-        uint256 toBackers = (amount * backersBps) / 10_000;
-        uint256 toTreasury = amount - toBackers;
-
-        if (!usdc.transfer(treasury, toTreasury)) revert TransferFailed();
-        totalBackersAccrued += toBackers;
-
-        emit RevenueReceived(amount, toBackers, toTreasury);
+        totalRevenueReceived += amount;
+        emit RevenueReceived(amount);
     }
 
-    function claim() external {
-        uint256 w = weight[msg.sender];
-        if (w == 0) revert NoWeight();
-        if (totalWeight == 0) revert NoWeight();
-
-        uint256 entitled = (totalBackersAccrued * w) / totalWeight;
-        uint256 toPay = entitled - claimed[msg.sender];
+    function collect() external onlyAdmin {
+        uint256 toPay = totalRevenueReceived - totalCollected;
         if (toPay == 0) revert NothingToClaim();
-
-        claimed[msg.sender] = entitled;
-        if (!usdc.transfer(msg.sender, toPay)) revert TransferFailed();
-
-        emit Claimed(msg.sender, toPay);
+        totalCollected += toPay;
+        if (!usdc.transfer(admin, toPay)) revert TransferFailed();
+        emit Collected(admin, toPay);
     }
 }

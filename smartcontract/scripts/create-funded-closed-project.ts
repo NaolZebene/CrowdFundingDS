@@ -54,6 +54,7 @@ async function main() {
     process.env.TEST_PROJECT_NAME ?? "AMM Test Market",
     process.env.TEST_PROJECT_DESCRIPTION ?? "Funded and closed test project for AMM trading.",
     process.env.TEST_PROJECT_FILES ?? "https://example.com/test-market-files",
+    process.env.TEST_PROJECT_ICON ?? "",
     process.env.TEST_PROJECT_METADATA ?? "ipfs://amm-test-market",
     goal,
     deadline,

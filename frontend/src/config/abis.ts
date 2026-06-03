@@ -8,9 +8,7 @@ export const AMM_ABI = [
   { name: "feeBps",             type: "function", stateMutability: "view",        inputs: [],                                                                                                                 outputs: [{ type: "uint256" }] },
   { name: "setFee",             type: "function", stateMutability: "nonpayable",  inputs: [{ name: "feeBps_", type: "uint256" }],                                                                              outputs: [] },
   { name: "transferAdmin",      type: "function", stateMutability: "nonpayable",  inputs: [{ name: "newAdmin", type: "address" }],                                                                             outputs: [] },
-  { name: "seed",               type: "function", stateMutability: "nonpayable",  inputs: [{ name: "projectId", type: "uint256" }, { name: "usdcIn", type: "uint256" }, { name: "commitIn", type: "uint256" }], outputs: [] },
   { name: "seedFromVault",      type: "function", stateMutability: "nonpayable",  inputs: [{ name: "projectId", type: "uint256" }, { name: "usdcIn", type: "uint256" }, { name: "commitIn", type: "uint256" }], outputs: [] },
-  { name: "removeLiquidity",    type: "function", stateMutability: "nonpayable",  inputs: [{ name: "projectId", type: "uint256" }],                                                                             outputs: [] },
   { name: "swapUsdcForCommit",  type: "function", stateMutability: "nonpayable",  inputs: [{ name: "projectId", type: "uint256" }, { name: "usdcIn",    type: "uint256" }, { name: "minCommitOut", type: "uint256" }], outputs: [{ type: "uint256" }] },
   { name: "swapCommitForUsdc",  type: "function", stateMutability: "nonpayable",  inputs: [{ name: "projectId", type: "uint256" }, { name: "commitIn",  type: "uint256" }, { name: "minUsdcOut",   type: "uint256" }], outputs: [{ type: "uint256" }] },
   /* ─── events ─── */
@@ -43,39 +41,29 @@ export const ERC1155_ABI = [
 
 export const REVENUE_ROUTER_ABI = [
   { name: "admin", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
-  { name: "treasury", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
-  { name: "backersBps", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
-  { name: "totalWeight", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
-  { name: "totalBackersAccrued", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
-  { name: "weight", type: "function", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ type: "uint256" }] },
-  { name: "claimed", type: "function", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ type: "uint256" }] },
-  {
-    name: "setWeights",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "users", type: "address[]" },
-      { name: "w", type: "uint256[]" },
-    ],
-    outputs: [],
-  },
+  { name: "totalRevenueReceived", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { name: "totalCollected", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { name: "collect", type: "function", stateMutability: "nonpayable", inputs: [], outputs: [] },
   {
     name: "RevenueReceived",
     type: "event",
     inputs: [
       { name: "amount", type: "uint256", indexed: false },
-      { name: "toBackers", type: "uint256", indexed: false },
-      { name: "toTreasury", type: "uint256", indexed: false },
     ],
   },
   {
-    name: "Claimed",
+    name: "Collected",
     type: "event",
     inputs: [
-      { name: "user", type: "address", indexed: true },
+      { name: "admin", type: "address", indexed: true },
       { name: "amount", type: "uint256", indexed: false },
     ],
   },
+] as const;
+
+export const MOCK_LENDER_ABI = [
+  { name: "addYield", type: "function", stateMutability: "nonpayable", inputs: [], outputs: [] },
+  { name: "YIELD_AMOUNT", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
 ] as const;
 
 export const VAULT_ABI = [
@@ -96,7 +84,6 @@ export const VAULT_ABI = [
   { name: "ReleasePending", type: "error", inputs: [] },
   { name: "DeadlinePassed", type: "error", inputs: [] },
   { name: "DeadlineNotPassed", type: "error", inputs: [] },
-  { name: "KYCFailed", type: "error", inputs: [] },
   { name: "GoalWasMet", type: "error", inputs: [] },
   { name: "NothingToRefund", type: "error", inputs: [] },
   { name: "FundingGoalNotMet", type: "error", inputs: [] },
@@ -126,15 +113,12 @@ export const VAULT_ABI = [
   { name: "amm", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { name: "lender", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { name: "ammSeedBps", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
-  { name: "approvedZK", type: "function", stateMutability: "view", inputs: [{ name: "", type: "address" }], outputs: [{ type: "bool" }] },
   { name: "setSubmissionFee", type: "function", stateMutability: "nonpayable", inputs: [{ name: "fee", type: "uint256" }], outputs: [] },
   { name: "setReleaseFeeBps", type: "function", stateMutability: "nonpayable", inputs: [{ name: "bps", type: "uint256" }], outputs: [] },
   { name: "setRevenueRouter", type: "function", stateMutability: "nonpayable", inputs: [{ name: "revenueRouter_", type: "address" }], outputs: [] },
   { name: "setAMM", type: "function", stateMutability: "nonpayable", inputs: [{ name: "amm_", type: "address" }], outputs: [] },
   { name: "setAmmSeedBps", type: "function", stateMutability: "nonpayable", inputs: [{ name: "bps", type: "uint256" }], outputs: [] },
   { name: "setLender", type: "function", stateMutability: "nonpayable", inputs: [{ name: "lender_", type: "address" }], outputs: [] },
-  { name: "addZK", type: "function", stateMutability: "nonpayable", inputs: [{ name: "zk_", type: "address" }], outputs: [] },
-  { name: "removeZK", type: "function", stateMutability: "nonpayable", inputs: [{ name: "zk_", type: "address" }], outputs: [] },
   { name: "transferAdmin", type: "function", stateMutability: "nonpayable", inputs: [{ name: "newAdmin", type: "address" }], outputs: [] },
   { name: "approveProject", type: "function", stateMutability: "nonpayable", inputs: [{ name: "projectId", type: "uint256" }], outputs: [] },
   {
@@ -158,6 +142,7 @@ export const VAULT_ABI = [
       { name: "name_", type: "string" },
       { name: "description_", type: "string" },
       { name: "additionalFilesUrl_", type: "string" },
+      { name: "iconUrl_", type: "string" },
       { name: "metadataUri_", type: "string" },
       { name: "fundingGoal_", type: "uint256" },
       { name: "fundingDeadline_", type: "uint256" },
@@ -184,6 +169,7 @@ export const VAULT_ABI = [
       { name: "name",               type: "string"   },
       { name: "description",        type: "string"   },
       { name: "additionalFilesUrl", type: "string"   },
+      { name: "iconUrl",            type: "string"   },
       { name: "totalAmmSeeded",     type: "uint256"  },
       { name: "milestoneWindow",    type: "uint256"  },
       { name: "milestoneDeadline",  type: "uint256"  },

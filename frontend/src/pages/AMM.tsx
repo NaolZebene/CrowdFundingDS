@@ -17,7 +17,7 @@ import { SubmitProjectModal } from "@/components/SubmitProjectModal";
 import { useWallet } from "@/hooks/useWallet";
 
 /* ─── helpers ─── */
-const fmtUSD   = (n: number) => n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M` : n >= 1_000 ? `$${(n / 1_000).toFixed(1)}K` : `$${n.toFixed(2)}`;
+const fmtUSD = (n: number) => n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M` : n >= 1_000 ? `$${(n / 1_000).toFixed(1)}K` : `$${n.toFixed(2)}`;
 const fmtToken = (n: number) => n >= 1_000 ? `${(n / 1_000).toFixed(2)}K` : n.toFixed(4);
 const SLIPPAGE_BPS = 50;
 const fmtTime = (ts: number) =>
@@ -298,8 +298,8 @@ function MarketStatus({ pool }: { pool: AmmPool }) {
   const tone = pool.tradable
     ? "bg-green-500/10 border-green-500/30 text-green-400"
     : pool.blockReason === "Needs AMM liquidity" || pool.blockReason === "Pool has no reserves"
-    ? "bg-yellow-500/10 border-yellow-500/30 text-yellow-400"
-    : "bg-blue-500/10 border-blue-500/30 text-blue-400";
+      ? "bg-yellow-500/10 border-yellow-500/30 text-yellow-400"
+      : "bg-blue-500/10 border-blue-500/30 text-blue-400";
 
   return (
     <span className={`inline-flex max-w-full items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium ${tone}`}>
@@ -370,9 +370,8 @@ function MarketWatchlist({
                   <button
                     key={pool.id}
                     onClick={() => onSelect(pool.id)}
-                    className={`grid w-full grid-cols-12 gap-3 px-4 py-3 text-left text-xs transition-colors hover:bg-secondary/60 border-b border-border/40 ${
-                      selectedId === pool.id ? "bg-primary/5 border-l-2 border-l-primary" : ""
-                    }`}
+                    className={`grid w-full grid-cols-12 gap-3 px-4 py-3 text-left text-xs transition-colors hover:bg-secondary/60 border-b border-border/40 ${selectedId === pool.id ? "bg-primary/5 border-l-2 border-l-primary" : ""
+                      }`}
                   >
                     <div className="col-span-4 min-w-0">
                       <div className="flex items-center gap-2.5">
@@ -536,9 +535,9 @@ export default function AMM() {
   const dispatch = useAppDispatch();
   const { role } = useWallet();
   const selectedProjectId = useAppSelector((s) => s.amm.selectedProjectId);
-  const direction         = useAppSelector((s) => s.amm.direction);
-  const inputVal          = useAppSelector((s) => s.amm.inputVal);
-  const search            = useAppSelector((s) => s.amm.search);
+  const direction = useAppSelector((s) => s.amm.direction);
+  const inputVal = useAppSelector((s) => s.amm.inputVal);
+  const search = useAppSelector((s) => s.amm.search);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   /* ── contract data & actions ── */
@@ -559,10 +558,10 @@ export default function AMM() {
   const selectedMarket = marketList.find((candidate) => candidate.id === selectedProjectId) ?? marketList[0];
   const indexedMarketCount = pools.filter((candidate) => candidate.indexed).length;
 
-  const inputNum    = parseFloat(inputVal) || 0;
+  const inputNum = parseFloat(inputVal) || 0;
   const impactColor = impact < 1 ? "text-green-400" : impact < 3 ? "text-yellow-400" : "text-red-400";
-  const fromLabel   = direction === "buy" ? "USDC" : (pool?.symbol ?? "NST");
-  const toLabel     = direction === "buy" ? (pool?.symbol ?? "NST") : "USDC";
+  const fromLabel = direction === "buy" ? "USDC" : (pool?.symbol ?? "NST");
+  const toLabel = direction === "buy" ? (pool?.symbol ?? "NST") : "USDC";
   const userBalance = direction === "buy" ? usdcBal : commitBal;
   const executionPrice = inputNum > 0 && outputNum > 0
     ? direction === "buy"
@@ -579,19 +578,19 @@ export default function AMM() {
     : 0;
   /* ── button label ── */
   function swapButtonLabel() {
-    if (!isConnected)             return "Connect wallet to swap";
-    if (!pool)                    return "No pools available";
+    if (!isConnected) return "Connect wallet to swap";
+    if (!pool) return "No pools available";
     if (direction === "sell" && !canSellSelectedPool) return `No ${pool.symbol} to sell`;
-    if (inputNum <= 0)            return "Enter an amount";
-    if (!hasEnoughInputBalance)   return `Insufficient ${fromLabel} balance`;
+    if (inputNum <= 0) return "Enter an amount";
+    if (!hasEnoughInputBalance) return `Insufficient ${fromLabel} balance`;
     if (isTxPending || isWriting) {
       if (lastAction === "approve-usdc") return "Approving USDC…";
       if (lastAction === "approve-commit") return "Approving CommitToken…";
       return "Confirming swap…";
     }
     if (isTxSuccess && lastAction === "swap") return "Swap successful!";
-    if (needsUsdcApproval)        return "Step 1: Approve USDC";
-    if (needsCommitApproval)      return "Step 1: Approve CommitToken";
+    if (needsUsdcApproval) return "Step 1: Approve USDC";
+    if (needsCommitApproval) return "Step 1: Approve CommitToken";
     return <>{direction === "buy" ? "Buy" : "Sell"} {pool.symbol} <ArrowRight className="w-4 h-4" /> {toLabel}</>;
   }
 
@@ -607,9 +606,9 @@ export default function AMM() {
           <div className="hidden md:flex items-center gap-1 ml-4 text-xs text-muted-foreground">
             {[
               ...(role === "admin" ? [{ label: "Admin Dashboard", href: "/dashboard" }] : []),
-              { label: "Markets",  href: "/" },
+              { label: "Markets", href: "/" },
               { label: "AMM Swap", href: "/amm" },
-              { label: "Portfolio",href: "/portfolio" },
+              { label: "Portfolio", href: "/portfolio" },
               { label: "My Projects", href: "/my-projects" },
             ].map((l) => (
               <Link key={l.label} href={l.href}>
@@ -727,11 +726,10 @@ export default function AMM() {
                         </span>
                       </div>
                     </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded border ${
-                      pool.indexed
+                    <span className={`text-[10px] px-2 py-0.5 rounded border ${pool.indexed
                         ? "bg-green-500/10 border-green-500/30 text-green-400"
                         : "bg-yellow-500/10 border-yellow-500/30 text-yellow-400"
-                    }`}>
+                      }`}>
                       {pool.indexed ? "Graph indexed" : "Live only"}
                     </span>
                   </div>
@@ -753,11 +751,10 @@ export default function AMM() {
                       <button
                         key={t}
                         onClick={() => setChartRange(t)}
-                        className={`text-[10px] px-2.5 py-1 rounded transition-colors font-mono ${
-                          t === chartRange
+                        className={`text-[10px] px-2.5 py-1 rounded transition-colors font-mono ${t === chartRange
                             ? "bg-primary/20 text-primary border border-primary/30"
                             : "text-muted-foreground hover:text-foreground"
-                        }`}
+                          }`}
                       >
                         {label}
                       </button>
@@ -784,10 +781,10 @@ export default function AMM() {
                   {indexedLoading && chartPoints.length === 0
                     ? "Syncing candle data from subgraph..."
                     : indexedError
-                    ? "Subgraph unavailable."
-                    : chartPoints.length === 0
-                    ? "No candles yet — make a swap to generate chart data."
-                    : `${chartPoints.length} candle${chartPoints.length !== 1 ? "s" : ""} · ${chartRange} view`}
+                      ? "Subgraph unavailable."
+                      : chartPoints.length === 0
+                        ? "No candles yet — make a swap to generate chart data."
+                        : `${chartPoints.length} candle${chartPoints.length !== 1 ? "s" : ""} · ${chartRange} view`}
                 </p>
               </CardContent>
             </Card>
@@ -795,276 +792,271 @@ export default function AMM() {
             {/* ── BOTTOM: swap left + trade history right ── */}
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
 
-            {/* ── LEFT: swap card ── */}
-            <div className="lg:col-span-2 space-y-4">
+              {/* ── LEFT: swap card ── */}
+              <div className="lg:col-span-2 space-y-4">
 
-              {/* swap interface */}
-              {pool && (
-                <Card className="bg-card border-border overflow-hidden">
-                  {/* Exchange-style buy/sell tab header */}
-                  <div className="grid grid-cols-2">
-                    {(["buy", "sell"] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => dispatch(setDirection(mode))}
-                        className={`py-3 text-sm font-bold transition-all border-b-2 ${
-                          direction === mode
-                            ? mode === "buy"
-                              ? "border-green-400 bg-green-500/10 text-green-300"
-                              : "border-red-400 bg-red-500/10 text-red-300"
-                            : "border-transparent text-muted-foreground hover:text-foreground bg-black/20"
-                        }`}
-                      >
-                        {mode === "buy" ? `▲ Buy ${pool.symbol}` : `▼ Sell ${pool.symbol}`}
-                      </button>
-                    ))}
-                  </div>
-                  <CardContent className="p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-[10px] px-2 py-0.5 rounded font-mono ${
-                          direction === "buy" ? "bg-green-500/10 text-green-400 border border-green-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"
-                        }`}>{direction === "buy" ? "Market Buy" : "Market Sell"}</span>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-secondary text-muted-foreground font-mono border border-border">
-                        Fee: {feeBps / 100}%
-                      </span>
-                    </div>
-
-                    {direction === "sell" && commitBal <= 0 && (
-                      <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-[11px] text-yellow-300">
-                        You do not hold {pool.symbol} for this project yet. Buy from the pool first or select a project token you already own.
-                      </div>
-                    )}
-
-                    {(needsUsdcApproval || needsCommitApproval) && inputNum > 0 && (
-                      <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-[11px] text-blue-300">
-                        First approve the AMM to use your {fromLabel}. After that confirms, the same button will send the {direction} transaction.
-                      </div>
-                    )}
-
-                    {!needsUsdcApproval && !needsCommitApproval && inputNum > 0 && (
-                      <div className="rounded-lg border border-green-500/25 bg-green-500/10 px-3 py-2 text-[11px] text-green-300">
-                        Approval is ready. The next wallet confirmation will execute the {direction}.
-                      </div>
-                    )}
-
-                    {/* from */}
-                    <div className={`rounded-lg p-3 space-y-1.5 border ${
-                      direction === "buy" ? "bg-green-500/5 border-green-500/20" : "bg-red-500/5 border-red-500/20"
-                    }`}>
-                      <div className="flex justify-between items-center">
-                        <span className="text-[11px] text-muted-foreground uppercase tracking-wider">
-                          {direction === "buy" ? "You pay" : `You sell`}
-                        </span>
+                {/* swap interface */}
+                {pool && (
+                  <Card className="bg-card border-border overflow-hidden">
+                    {/* Exchange-style buy/sell tab header */}
+                    <div className="grid grid-cols-2">
+                      {(["buy", "sell"] as const).map((mode) => (
                         <button
-                          className="text-[11px] text-primary hover:underline font-mono"
-                          onClick={() => dispatch(setInputVal(userBalance.toFixed(6)))}
+                          key={mode}
+                          type="button"
+                          onClick={() => dispatch(setDirection(mode))}
+                          className={`py-3 text-sm font-bold transition-all border-b-2 ${direction === mode
+                              ? mode === "buy"
+                                ? "border-green-400 bg-green-500/10 text-green-300"
+                                : "border-red-400 bg-red-500/10 text-red-300"
+                              : "border-transparent text-muted-foreground hover:text-foreground bg-black/20"
+                            }`}
                         >
-                          Max: {fmtToken(userBalance)} {fromLabel}
+                          {mode === "buy" ? `▲ Buy ${pool.symbol}` : `▼ Sell ${pool.symbol}`}
+                        </button>
+                      ))}
+                    </div>
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[10px] px-2 py-0.5 rounded font-mono ${direction === "buy" ? "bg-green-500/10 text-green-400 border border-green-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"
+                            }`}>{direction === "buy" ? "Market Buy" : "Market Sell"}</span>
+                        </div>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-secondary text-muted-foreground font-mono border border-border">
+                          Fee: {feeBps / 100}%
+                        </span>
+                      </div>
+
+                      {direction === "sell" && commitBal <= 0 && (
+                        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-[11px] text-yellow-300">
+                          You do not hold {pool.symbol} for this project yet. Buy from the pool first or select a project token you already own.
+                        </div>
+                      )}
+
+                      {(needsUsdcApproval || needsCommitApproval) && inputNum > 0 && (
+                        <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-[11px] text-blue-300">
+                          First approve the AMM to use your {fromLabel}. After that confirms, the same button will send the {direction} transaction.
+                        </div>
+                      )}
+
+                      {!needsUsdcApproval && !needsCommitApproval && inputNum > 0 && (
+                        <div className="rounded-lg border border-green-500/25 bg-green-500/10 px-3 py-2 text-[11px] text-green-300">
+                          Approval is ready. The next wallet confirmation will execute the {direction}.
+                        </div>
+                      )}
+
+                      {/* from */}
+                      <div className={`rounded-lg p-3 space-y-1.5 border ${direction === "buy" ? "bg-green-500/5 border-green-500/20" : "bg-red-500/5 border-red-500/20"
+                        }`}>
+                        <div className="flex justify-between items-center">
+                          <span className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                            {direction === "buy" ? "You pay" : `You sell`}
+                          </span>
+                          <button
+                            className="text-[11px] text-primary hover:underline font-mono"
+                            onClick={() => dispatch(setInputVal(userBalance.toFixed(6)))}
+                          >
+                            Max: {fmtToken(userBalance)} {fromLabel}
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            placeholder="0.00"
+                            value={inputVal}
+                            onChange={(e) => dispatch(setInputVal(e.target.value))}
+                            className="flex-1 bg-transparent text-2xl font-mono font-bold outline-none placeholder:text-muted-foreground/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                          <div className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-3 py-2 shrink-0">
+                            <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center">
+                              <span className="text-[8px] font-bold text-primary">{fromLabel[0]}</span>
+                            </div>
+                            <span className="text-sm font-bold">{fromLabel}</span>
+                          </div>
+                        </div>
+                        {/* % buttons */}
+                        <div className="flex gap-1.5 pt-0.5">
+                          {[25, 50, 75, 100].map((p) => (
+                            <button
+                              key={p}
+                              type="button"
+                              disabled={userBalance <= 0}
+                              className="flex-1 text-[10px] py-1 rounded bg-card border border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-colors font-mono"
+                              onClick={() => dispatch(setInputVal(((userBalance * p) / 100).toFixed(6)))}
+                            >
+                              {p}%
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* flip */}
+                      <div className="flex justify-center -my-1">
+                        <button
+                          onClick={() => dispatch(flipDirection())}
+                          className="p-2 rounded-full bg-card border border-border hover:border-primary/50 transition-all text-muted-foreground hover:text-foreground group shadow-sm"
+                        >
+                          <ArrowUpDown className="w-4 h-4 group-hover:rotate-180 transition-transform duration-300" />
                         </button>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          placeholder="0.00"
-                          value={inputVal}
-                          onChange={(e) => dispatch(setInputVal(e.target.value))}
-                          className="flex-1 bg-transparent text-2xl font-mono font-bold outline-none placeholder:text-muted-foreground/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <div className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-3 py-2 shrink-0">
-                          <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center">
-                            <span className="text-[8px] font-bold text-primary">{fromLabel[0]}</span>
-                          </div>
-                          <span className="text-sm font-bold">{fromLabel}</span>
+
+                      {/* to */}
+                      <div className="bg-secondary/60 border border-border rounded-lg p-3 space-y-1.5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                            {direction === "buy" ? `You receive` : "You receive"}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground font-mono">
+                            Bal: {fmtToken(direction === "buy" ? commitBal : usdcBal)} {toLabel}
+                          </span>
                         </div>
-                      </div>
-                      {/* % buttons */}
-                      <div className="flex gap-1.5 pt-0.5">
-                        {[25, 50, 75, 100].map((p) => (
-                          <button
-                            key={p}
-                            type="button"
-                            disabled={userBalance <= 0}
-                            className="flex-1 text-[10px] py-1 rounded bg-card border border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-colors font-mono"
-                            onClick={() => dispatch(setInputVal(((userBalance * p) / 100).toFixed(6)))}
-                          >
-                            {p}%
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* flip */}
-                    <div className="flex justify-center -my-1">
-                      <button
-                        onClick={() => dispatch(flipDirection())}
-                        className="p-2 rounded-full bg-card border border-border hover:border-primary/50 transition-all text-muted-foreground hover:text-foreground group shadow-sm"
-                      >
-                        <ArrowUpDown className="w-4 h-4 group-hover:rotate-180 transition-transform duration-300" />
-                      </button>
-                    </div>
-
-                    {/* to */}
-                    <div className="bg-secondary/60 border border-border rounded-lg p-3 space-y-1.5">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[11px] text-muted-foreground uppercase tracking-wider">
-                          {direction === "buy" ? `You receive` : "You receive"}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground font-mono">
-                          Bal: {fmtToken(direction === "buy" ? commitBal : usdcBal)} {toLabel}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`flex-1 text-2xl font-mono font-bold ${
-                          outputNum > 0 ? (direction === "buy" ? "text-green-400" : "text-red-400") : "text-muted-foreground/30"
-                        }`}>
-                          {outputNum > 0 ? fmtToken(outputNum) : "0.00"}
-                        </span>
-                        <div className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-3 py-2 shrink-0">
-                          <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center">
-                            <span className="text-[8px] font-bold text-primary">{toLabel[0]}</span>
-                          </div>
-                          <span className="text-sm font-bold">{toLabel}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* swap details */}
-                    {outputNum > 0 && (
-                      <div className="bg-secondary/50 rounded-lg p-3 space-y-2 text-[11px]">
-                        <div className="rounded-md border border-border bg-card/80 p-2">
-                          <div className="flex justify-between gap-3 text-muted-foreground">
-                            <span>Pool starting price</span>
-                            <span className="font-mono text-foreground">{currentPriceLabel(pool)}</span>
-                          </div>
-                          <div className="mt-1 flex justify-between gap-3 text-muted-foreground">
-                            <span>Average price for this swap</span>
-                            <span className={`font-mono font-semibold ${impact >= 5 ? "text-red-400" : "text-foreground"}`}>
-                              {fmtUSD(executionPrice)} per {pool.symbol}
-                            </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`flex-1 text-2xl font-mono font-bold ${outputNum > 0 ? (direction === "buy" ? "text-green-400" : "text-red-400") : "text-muted-foreground/30"
+                            }`}>
+                            {outputNum > 0 ? fmtToken(outputNum) : "0.00"}
+                          </span>
+                          <div className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-3 py-2 shrink-0">
+                            <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center">
+                              <span className="text-[8px] font-bold text-primary">{toLabel[0]}</span>
+                            </div>
+                            <span className="text-sm font-bold">{toLabel}</span>
                           </div>
                         </div>
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>{direction === "buy" ? "USDC entering pool" : `${pool.symbol} entering pool`}</span>
-                          <span className="font-mono text-foreground">{tradeVsPoolPct.toFixed(1)}% of current reserve</span>
-                        </div>
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>Price impact</span>
-                          <span className={`font-mono font-semibold ${impactColor}`}>{impact.toFixed(2)}%</span>
-                        </div>
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>Min. received ({SLIPPAGE_BPS / 100}% slippage)</span>
-                          <span className="font-mono text-foreground">{fmtToken(minReceived)} {toLabel}</span>
-                        </div>
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>Fee ({feeBps / 100}%)</span>
-                          <span className="font-mono text-foreground">{fmtUSD(inputNum * feeBps / 10_000)} {fromLabel}</span>
-                        </div>
                       </div>
-                    )}
 
-                    {impact >= 5 && (
-                      <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
-                        <Info className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                        <p className="text-[11px] text-red-400">
-                          High price impact ({impact.toFixed(1)}%). The pool only has {fmtUSD(pool.poolUsdc)} USDC and {fmtToken(pool.poolCommit)} {pool.symbol}, so this trade moves far beyond the starting price.
+                      {/* swap details */}
+                      {outputNum > 0 && (
+                        <div className="bg-secondary/50 rounded-lg p-3 space-y-2 text-[11px]">
+                          <div className="rounded-md border border-border bg-card/80 p-2">
+                            <div className="flex justify-between gap-3 text-muted-foreground">
+                              <span>Pool starting price</span>
+                              <span className="font-mono text-foreground">{currentPriceLabel(pool)}</span>
+                            </div>
+                            <div className="mt-1 flex justify-between gap-3 text-muted-foreground">
+                              <span>Average price for this swap</span>
+                              <span className={`font-mono font-semibold ${impact >= 5 ? "text-red-400" : "text-foreground"}`}>
+                                {fmtUSD(executionPrice)} per {pool.symbol}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>{direction === "buy" ? "USDC entering pool" : `${pool.symbol} entering pool`}</span>
+                            <span className="font-mono text-foreground">{tradeVsPoolPct.toFixed(1)}% of current reserve</span>
+                          </div>
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Price impact</span>
+                            <span className={`font-mono font-semibold ${impactColor}`}>{impact.toFixed(2)}%</span>
+                          </div>
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Min. received ({SLIPPAGE_BPS / 100}% slippage)</span>
+                            <span className="font-mono text-foreground">{fmtToken(minReceived)} {toLabel}</span>
+                          </div>
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Fee ({feeBps / 100}%)</span>
+                            <span className="font-mono text-foreground">{fmtUSD(inputNum * feeBps / 10_000)} {fromLabel}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {impact >= 5 && (
+                        <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                          <Info className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                          <p className="text-[11px] text-red-400">
+                            High price impact ({impact.toFixed(1)}%). The pool only has {fmtUSD(pool.poolUsdc)} USDC and {fmtToken(pool.poolCommit)} {pool.symbol}, so this trade moves far beyond the starting price.
+                          </p>
+                        </div>
+                      )}
+
+                      {writeError && (
+                        <p className="text-[11px] text-red-400 text-center">{writeError.message.slice(0, 80)}</p>
+                      )}
+
+                      {!hasEnoughInputBalance && inputNum > 0 && (
+                        <p className="text-[11px] text-red-400 text-center">
+                          Your wallet only has {fmtToken(userBalance)} {fromLabel}.
                         </p>
+                      )}
+
+                      <Button
+                        className={`w-full h-12 text-sm font-bold gap-2 transition-all ${direction === "buy"
+                            ? "bg-green-500 hover:bg-green-400 text-black"
+                            : "bg-red-500 hover:bg-red-400 text-white"
+                          }`}
+                        disabled={
+                          !isConnected ||
+                          !canSellSelectedPool ||
+                          !hasEnoughInputBalance ||
+                          inputNum <= 0 ||
+                          isWriting ||
+                          isTxPending
+                        }
+                        onClick={handleSwap}
+                      >
+                        {swapButtonLabel()}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+
+              {/* ── RIGHT: trade history ── */}
+              <div className="lg:col-span-3 space-y-4">
+
+                {/* trade history — exchange order-log style */}
+                <Card className="bg-card border-border overflow-hidden">
+                  <div className="px-4 py-3 border-b border-border/50 bg-muted/40 flex items-center justify-between">
+                    <p className="text-xs font-semibold flex items-center gap-1.5">
+                      <Activity className="w-3.5 h-3.5 text-primary" /> Trade History
+                    </p>
+                    <span className="text-[10px] text-muted-foreground font-mono">{recentTrades.length} txns indexed</span>
+                  </div>
+                  {/* column headers */}
+                  <div className="grid grid-cols-12 gap-2 px-4 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/40 bg-secondary/30">
+                    <span className="col-span-2">Side</span>
+                    <span className="col-span-3">Address</span>
+                    <span className="col-span-2 text-right">USDC</span>
+                    <span className="col-span-2 text-right">Tokens</span>
+                    <span className="col-span-2 text-right">Price</span>
+                    <span className="col-span-1 text-right">Time</span>
+                  </div>
+                  <CardContent className="p-0">
+                    {indexedLoading && recentTrades.length === 0 ? (
+                      <p className="text-center text-xs text-muted-foreground py-8">Syncing trade history...</p>
+                    ) : recentTrades.length === 0 ? (
+                      <p className="text-center text-xs text-muted-foreground py-8">No trades indexed yet. Make a swap to see history.</p>
+                    ) : (
+                      <div>
+                        {recentTrades.slice(0, 15).map((t, idx) => {
+                          const isBuy = t.side === "BUY";
+                          const isSell = t.side === "SELL";
+                          const tone = isBuy ? "text-green-400" : isSell ? "text-red-400" : t.side === "SEED" ? "text-blue-400" : "text-yellow-400";
+                          const bgTone = isBuy ? "hover:bg-green-500/5" : isSell ? "hover:bg-red-500/5" : "hover:bg-secondary/40";
+                          const actor = t.user === "0x0000000000000000000000000000000000000000"
+                            ? "protocol"
+                            : `${t.user.slice(0, 6)}…${t.user.slice(-4)}`;
+
+                          return (
+                            <div
+                              key={t.id}
+                              className={`grid grid-cols-12 gap-2 items-center px-4 py-2 text-[11px] border-b border-border/20 transition-colors ${bgTone} ${idx % 2 === 0 ? "" : "bg-secondary/10"}`}
+                            >
+                              <span className={`col-span-2 font-bold font-mono ${tone}`}>
+                                {isBuy ? "▲ BUY" : isSell ? "▼ SELL" : t.side}
+                              </span>
+                              <span className="col-span-3 font-mono truncate text-muted-foreground text-[10px]">{actor}</span>
+                              <span className="col-span-2 text-right font-mono">{fmtUSD(t.usdcAmount)}</span>
+                              <span className={`col-span-2 text-right font-mono ${tone}`}>{fmtToken(t.commitAmount)}</span>
+                              <span className="col-span-2 text-right font-mono">{t.price > 0 ? fmtUSD(t.price) : "—"}</span>
+                              <span className="col-span-1 text-right text-muted-foreground text-[10px]">{fmtTime(t.timestamp)}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
-
-                    {writeError && (
-                      <p className="text-[11px] text-red-400 text-center">{writeError.message.slice(0, 80)}</p>
-                    )}
-
-                    {!hasEnoughInputBalance && inputNum > 0 && (
-                      <p className="text-[11px] text-red-400 text-center">
-                        Your wallet only has {fmtToken(userBalance)} {fromLabel}.
-                      </p>
-                    )}
-
-                    <Button
-                      className={`w-full h-12 text-sm font-bold gap-2 transition-all ${
-                        direction === "buy"
-                          ? "bg-green-500 hover:bg-green-400 text-black"
-                          : "bg-red-500 hover:bg-red-400 text-white"
-                      }`}
-                      disabled={
-                        !isConnected ||
-                        !canSellSelectedPool ||
-                        !hasEnoughInputBalance ||
-                        inputNum <= 0 ||
-                        isWriting ||
-                        isTxPending
-                      }
-                      onClick={handleSwap}
-                    >
-                      {swapButtonLabel()}
-                    </Button>
                   </CardContent>
                 </Card>
-              )}
-            </div>
 
-            {/* ── RIGHT: trade history ── */}
-            <div className="lg:col-span-3 space-y-4">
-
-              {/* trade history — exchange order-log style */}
-              <Card className="bg-card border-border overflow-hidden">
-                <div className="px-4 py-3 border-b border-border/50 bg-muted/40 flex items-center justify-between">
-                  <p className="text-xs font-semibold flex items-center gap-1.5">
-                    <Activity className="w-3.5 h-3.5 text-primary" /> Trade History
-                  </p>
-                  <span className="text-[10px] text-muted-foreground font-mono">{recentTrades.length} txns indexed</span>
-                </div>
-                {/* column headers */}
-                <div className="grid grid-cols-12 gap-2 px-4 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/40 bg-secondary/30">
-                  <span className="col-span-2">Side</span>
-                  <span className="col-span-3">Address</span>
-                  <span className="col-span-2 text-right">USDC</span>
-                  <span className="col-span-2 text-right">Tokens</span>
-                  <span className="col-span-2 text-right">Price</span>
-                  <span className="col-span-1 text-right">Time</span>
-                </div>
-                <CardContent className="p-0">
-                  {indexedLoading && recentTrades.length === 0 ? (
-                    <p className="text-center text-xs text-muted-foreground py-8">Syncing trade history...</p>
-                  ) : recentTrades.length === 0 ? (
-                    <p className="text-center text-xs text-muted-foreground py-8">No trades indexed yet. Make a swap to see history.</p>
-                  ) : (
-                    <div>
-                      {recentTrades.slice(0, 15).map((t, idx) => {
-                        const isBuy = t.side === "BUY";
-                        const isSell = t.side === "SELL";
-                        const tone = isBuy ? "text-green-400" : isSell ? "text-red-400" : t.side === "SEED" ? "text-blue-400" : "text-yellow-400";
-                        const bgTone = isBuy ? "hover:bg-green-500/5" : isSell ? "hover:bg-red-500/5" : "hover:bg-secondary/40";
-                        const actor = t.user === "0x0000000000000000000000000000000000000000"
-                          ? "protocol"
-                          : `${t.user.slice(0, 6)}…${t.user.slice(-4)}`;
-
-                        return (
-                          <div
-                            key={t.id}
-                            className={`grid grid-cols-12 gap-2 items-center px-4 py-2 text-[11px] border-b border-border/20 transition-colors ${bgTone} ${idx % 2 === 0 ? "" : "bg-secondary/10"}`}
-                          >
-                            <span className={`col-span-2 font-bold font-mono ${tone}`}>
-                              {isBuy ? "▲ BUY" : isSell ? "▼ SELL" : t.side === "LIQUIDITY_REMOVED" ? "REMOVE" : t.side}
-                            </span>
-                            <span className="col-span-3 font-mono truncate text-muted-foreground text-[10px]">{actor}</span>
-                            <span className="col-span-2 text-right font-mono">{fmtUSD(t.usdcAmount)}</span>
-                            <span className={`col-span-2 text-right font-mono ${tone}`}>{fmtToken(t.commitAmount)}</span>
-                            <span className="col-span-2 text-right font-mono">{t.price > 0 ? fmtUSD(t.price) : "—"}</span>
-                            <span className="col-span-1 text-right text-muted-foreground text-[10px]">{fmtTime(t.timestamp)}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-            </div>
+              </div>
             </div>
           </div>
         )}

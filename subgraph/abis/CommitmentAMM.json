@@ -23,28 +23,6 @@
   },
   {
     "type": "event",
-    "name": "LiquidityRemoved",
-    "inputs": [
-      {
-        "indexed": true,
-        "name": "projectId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "name": "usdcOut",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "name": "commitOut",
-        "type": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "FeeSet",
     "inputs": [
       {

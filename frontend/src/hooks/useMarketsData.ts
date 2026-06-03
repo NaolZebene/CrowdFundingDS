@@ -12,6 +12,7 @@ export interface MarketProject {
   name: string;
   description: string;
   additionalFilesUrl: string;
+  iconUrl: string;
   offchainMetadataUri: string;
   founder: string;
   milestoneCount: number;
@@ -79,7 +80,7 @@ export function useMarketsData() {
         const r = res.result as readonly [
           string, string, bigint, bigint, bigint,
           bigint, bigint, boolean, string, bigint, bigint, boolean,
-          string, string, string, bigint,
+          string, string, string, string, bigint,
           bigint, bigint, boolean, bigint, boolean, boolean,
         ];
         const totalRaised = toUSDC(r[3]);
@@ -91,6 +92,7 @@ export function useMarketsData() {
           name:             r[12] || `Project #${i + 1}`,
           description:      r[13] || "No description provided.",
           additionalFilesUrl: r[14] || "",
+          iconUrl:          r[15] || "",
           offchainMetadataUri: r[8] || "",
           founder:          r[0],
           milestoneCount:   Number(r[2]),
@@ -105,11 +107,11 @@ export function useMarketsData() {
           isExpired:        expired,
           goalMet,
           fundingClosed:    expired, // Only close when deadline passes, not when goal met
-          milestoneWindow:  Number(r[16]),
-          milestoneDeadline: r[17],
-          timeoutActive:    r[18],
-          timeoutOpenedAt:  Number(r[19]),
-          projectDead:      r[20],
+          milestoneWindow:  Number(r[17]),
+          milestoneDeadline: r[18],
+          timeoutActive:    r[19],
+          timeoutOpenedAt:  Number(r[20]),
+          projectDead:      r[21],
         } satisfies MarketProject;
       })
       .filter(Boolean) as MarketProject[];

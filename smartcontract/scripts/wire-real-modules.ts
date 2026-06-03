@@ -7,7 +7,6 @@ type AddressBook = {
   TREASURY: string;
   COMMIT: string;
   LENDER: string;
-  ZKVER: string;
   VAULT: string;
   AMM_ADDR: string;
   ROUTER: string;
@@ -29,7 +28,6 @@ export const ADDR = {
   TREASURY: "${addresses.TREASURY}",
   COMMIT: "${addresses.COMMIT}",
   LENDER: "${addresses.LENDER}",
-  ZKVER: "${addresses.ZKVER}",
   VAULT: "${addresses.VAULT}",
   AMM_ADDR: "${addresses.AMM_ADDR}",
   ROUTER: "${addresses.ROUTER}"
@@ -42,7 +40,6 @@ export const CONTRACTS = {
   TREASURY: "${addresses.TREASURY}" as \`0x\${string}\`,
   COMMIT: "${addresses.COMMIT}" as \`0x\${string}\`,
   LENDER: "${addresses.LENDER}" as \`0x\${string}\`,
-  ZKVER: "${addresses.ZKVER}" as \`0x\${string}\`,
   VAULT: "${addresses.VAULT}" as \`0x\${string}\`,
   ROUTER: "${addresses.ROUTER}" as \`0x\${string}\`,
   AMM: "${addresses.AMM_ADDR}" as \`0x\${string}\`,
@@ -76,22 +73,15 @@ async function main() {
   console.log("Vault:", ADDR.VAULT);
 
   const lender = requiredAddress("REAL_LENDER_ADDRESS");
-  const zkVerifier = requiredAddress("REAL_ZK_VERIFIER_ADDRESS");
 
   const vault = await ethers.getContractAt("CrowdVault", ADDR.VAULT);
 
   console.log("Current lender:", await vault.lender());
   console.log("Current AMM:", await vault.amm());
-  console.log("Configured ZK approved:", await vault.approvedZK(zkVerifier));
 
   if ((await vault.lender()).toLowerCase() !== lender.toLowerCase()) {
     await (await vault.setLender(lender)).wait();
     console.log("Lender wired:", lender);
-  }
-
-  if (!(await vault.approvedZK(zkVerifier))) {
-    await (await vault.addZK(zkVerifier)).wait();
-    console.log("ZK verifier approved:", zkVerifier);
   }
 
   if ((await vault.amm()).toLowerCase() !== ADDR.AMM_ADDR.toLowerCase()) {
@@ -102,7 +92,6 @@ async function main() {
   await writeAddressFiles({
     ...ADDR,
     LENDER: lender,
-    ZKVER: zkVerifier,
   });
   console.log("Address files updated.");
   console.log("Real modules connected.");

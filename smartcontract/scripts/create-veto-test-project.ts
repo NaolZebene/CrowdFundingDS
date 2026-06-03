@@ -66,6 +66,7 @@ async function main() {
     process.env.VETO_TEST_NAME ?? "Veto Milestone Test Project",
     process.env.VETO_TEST_DESCRIPTION ?? "Funded project for testing milestone release requests and shareholder veto voting.",
     process.env.VETO_TEST_FILES ?? "https://example.com/veto-test-files",
+    process.env.VETO_TEST_ICON ?? "",
     process.env.VETO_TEST_METADATA ?? "ipfs://veto-milestone-test",
     goal,
     deadline,

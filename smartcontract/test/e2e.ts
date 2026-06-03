@@ -7,7 +7,6 @@
  *  ✓ Project creation (with & without funding goal)
  *  ✓ Admin approval flow
  *  ✓ Invest flow (USDC approve → invest → CommitToken minted)
- *  ✓ KYC / ZK verifier gating (MockZKVerifier)
  *  ✓ Funding deadline passed → initial milestone release + AMM seed
  *  ✓ Milestone verification → requestRelease → approval/veto → executeRelease
  *  ✓ Veto flow (30% stake threshold)
@@ -15,13 +14,21 @@
  *  ✓ Yield farming (seeded MockLender yield + harvestYield + claimYield)
  *  ✓ AMM swap (buy & sell CommitToken via CommitmentAMM)
  *  ✓ Revenue router (release fee)
- *  ✓ WorldIDVerifierAdapter rejects bad proof gracefully
  *  ✓ Admin transfer (two-step)
  */
 
 import { network } from "hardhat";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+const SEPOLIA_USDC = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
+const ERC20_ABI = [
+  "function balanceOf(address account) view returns (uint256)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function transfer(address to, uint256 amount) returns (bool)",
+  "function transferFrom(address from, address to, uint256 amount) returns (bool)",
+] as const;
 
 function ok(condition: boolean, msg: string) {
   if (!condition) throw new Error(`FAIL: ${msg}`);
@@ -50,40 +57,28 @@ async function main() {
    * ══════════════════════════════════════════════════════ */
   console.log("► [1] Deploying contracts…");
 
-  // MockUSDC — no constructor args
-  const usdcC = await ethers.getContractFactory("MockUSDC");
-  const usdc  = (await (await usdcC.deploy()).waitForDeployment()) as any;
-  const USDC  = await usdc.getAddress();
-
-  await usdc.mint(investor1.address, U6(10_000));
-  await usdc.mint(investor2.address, U6(10_000));
-  await usdc.mint(stranger.address, U6(1_000));
-  await usdc.mint(deployer.address,  U6(50_000));
+  const USDC = SEPOLIA_USDC;
+  const usdc = await ethers.getContractAt(ERC20_ABI, USDC) as any;
 
   // MockLender
   const lenderC = await ethers.getContractFactory("MockLender");
   const lender  = (await (await lenderC.deploy(USDC)).waitForDeployment()) as any;
   const LENDER  = await lender.getAddress();
 
-  // MockZKVerifier
-  const zkC      = await ethers.getContractFactory("MockZKVerifier");
-  const zkVerifier = (await (await zkC.deploy()).waitForDeployment()) as any;
-  const ZKVER    = await zkVerifier.getAddress();
-
   // CommitmentToken
   const commitC = await ethers.getContractFactory("CommitmentToken");
   const commit  = (await (await commitC.deploy(deployer.address, "Test Commit", "TST")).waitForDeployment()) as any;
   const COMMIT  = await commit.getAddress();
 
+  // RevenueRouter(usdc_)
+  const routerC = await ethers.getContractFactory("RevenueRouter");
+  const router  = (await (await routerC.deploy(USDC)).waitForDeployment()) as any;
+  const ROUTER  = await router.getAddress();
+
   // CrowdVault
   const vaultC = await ethers.getContractFactory("CrowdVault");
-  const vault  = (await (await vaultC.deploy(USDC, COMMIT)).waitForDeployment()) as any;
+  const vault  = (await (await vaultC.deploy(USDC, COMMIT, ROUTER)).waitForDeployment()) as any;
   const VAULT  = await vault.getAddress();
-
-  // RevenueRouter(usdc_, treasury_, backersBps_)
-  const routerC = await ethers.getContractFactory("RevenueRouter");
-  const router  = (await (await routerC.deploy(USDC, treasury.address, 5000n)).waitForDeployment()) as any;
-  const ROUTER  = await router.getAddress();
 
   // CommitmentAMM
   const ammC = await ethers.getContractFactory("CommitmentAMM");
@@ -91,10 +86,10 @@ async function main() {
   const AMM  = await amm.getAddress();
 
   // Wire
+  await router.setVault(VAULT);
   await commit.setMinter(VAULT);
+  await lender.setWithdrawer(VAULT);
   await vault.setLender(LENDER);
-  await vault.addZK(ZKVER);
-  await vault.setRevenueRouter(ROUTER);
   await vault.setAMM(AMM);
   await vault.setReleaseFeeBps(100n); // 1%
 
@@ -110,7 +105,7 @@ async function main() {
   // Project A: goal-based (3 milestones, 1000 USDC, 1-day deadline)
   await (vault.connect(founder) as any).createProject(
     treasury.address, 3n,
-    "Project Alpha", "Goal-based project", "", "ipfs://alpha",
+    "Project Alpha", "Goal-based project", "", "", "ipfs://alpha",
     U6(1_000), now + 86400n, 0n
   );
   ok((await vault.projectCount()) === 1n, "Project A created (id=1)");
@@ -118,7 +113,7 @@ async function main() {
   // Project B: no-goal (2 milestones, no deadline)
   await (vault.connect(founder) as any).createProject(
     treasury.address, 2n,
-    "Project Beta", "No-goal open project", "", "ipfs://beta",
+    "Project Beta", "No-goal open project", "", "", "ipfs://beta",
     0n, 0n, 0n
   );
   ok((await vault.projectCount()) === 2n, "Project B created (id=2)");
@@ -126,7 +121,7 @@ async function main() {
   // Project C: refund test (goal 5000 USDC, 30-day deadline — mined past before refund)
   await (vault.connect(founder) as any).createProject(
     treasury.address, 1n,
-    "Project Charlie", "Refund test project", "", "ipfs://charlie",
+    "Project Charlie", "Refund test project", "", "", "ipfs://charlie",
     U6(5_000), now + 30n * 86400n, 0n
   );
   ok((await vault.projectCount()) === 3n, "Project C created (id=3)");
@@ -174,36 +169,20 @@ async function main() {
   ok(projA.totalReleased > 0n, `Initial milestone funds released: ${fmt6(projA.totalReleased)} USDC`);
   ok(await amm.seeded(1n), "AMM pool seeded after funding deadline acceptance");
 
-  /* ══════════════════════════════════════════════════════
-   * 4. ZK VERIFIER GATING
-   * ══════════════════════════════════════════════════════ */
-  console.log("\n► [4] ZK verifier gating…");
-
   await (usdc.connect(investor1) as any).approve(VAULT, U6(100));
   await (vault.connect(investor1) as any).invest(2n, U6(100), "0x");
-  ok(true, "Invest with empty proof accepted (ZK optional)");
+  ok(true, "Additional investment accepted without verifier gating");
 
-  const kycProof = ethers.AbiCoder.defaultAbiCoder().encode(
-    ["address", "bytes"],
-    [ZKVER, "0x"]
-  );
-
-  let didRevert = false;
+  let outsiderWithdrawRejected = false;
   try {
-    await (usdc.connect(stranger) as any).approve(VAULT, U6(50));
-    await (vault.connect(stranger) as any).invest(2n, U6(50), kycProof);
-  } catch { didRevert = true; }
-  ok(didRevert, "Invest with non-empty proof rejects unapproved KYC user");
-
-  await zkVerifier.setKyc(stranger.address, true);
-  await (usdc.connect(stranger) as any).approve(VAULT, U6(50));
-  await (vault.connect(stranger) as any).invest(2n, U6(50), kycProof);
-  ok((await commit.balanceOf(stranger.address, 2n) as bigint) === U6(50), "Invest with approved KYC proof succeeds");
+    await (lender.connect(stranger) as any).withdraw(U6(1), stranger.address);
+  } catch { outsiderWithdrawRejected = true; }
+  ok(outsiderWithdrawRejected, "MockLender rejects withdrawals from non-vault callers");
 
   /* ══════════════════════════════════════════════════════
-   * 5. MILESTONE VERIFICATION → RELEASE
+   * 4. MILESTONE VERIFICATION → RELEASE
    * ══════════════════════════════════════════════════════ */
-  console.log("\n► [5] Milestone verification → release…");
+  console.log("\n► [4] Milestone verification → release…");
 
   await (vault.connect(founder) as any).verifyNextMilestone(1n);
   ok((await vault.projects(1n)).currentMilestone === 2n, "Milestone 2 verified");
@@ -218,9 +197,9 @@ async function main() {
   ok((await vault.projects(1n)).releaseRequestedAt === 0n, "Release request closed automatically after approval threshold");
 
   /* ══════════════════════════════════════════════════════
-   * 6. VETO FLOW (30% stake threshold)
+   * 5. VETO FLOW (30% stake threshold)
    * ══════════════════════════════════════════════════════ */
-  console.log("\n► [6] Veto flow…");
+  console.log("\n► [5] Veto flow…");
 
   await (vault.connect(founder) as any).verifyNextMilestone(1n);
   ok((await vault.projects(1n)).currentMilestone === 3n, "Milestone 3 verified");
@@ -241,9 +220,9 @@ async function main() {
   ok(!(await vault.projects(1n)).releaseVetoed, "Veto cleared by treasury");
 
   /* ══════════════════════════════════════════════════════
-   * 7. REFUND FLOW
+   * 6. REFUND FLOW
    * ══════════════════════════════════════════════════════ */
-  console.log("\n► [7] Refund flow…");
+  console.log("\n► [6] Refund flow…");
 
   let investUnapprovedFailed = false;
   try {
@@ -266,13 +245,13 @@ async function main() {
   ok((await commit.balanceOf(investor1.address, 3n) as bigint) === 0n, "CommitTokens burned after refund");
 
   /* ══════════════════════════════════════════════════════
-   * 8. YIELD FARMING
+   * 7. YIELD FARMING
    * ══════════════════════════════════════════════════════ */
-  console.log("\n► [8] Yield farming (seeded MockLender yield)…");
+  console.log("\n► [7] Yield farming (seeded MockLender yield)…");
 
-  const seededYield = U6(5);
+  const seededYield = await lender.YIELD_AMOUNT();
   await (usdc.connect(deployer) as any).approve(LENDER, seededYield);
-  await (lender.connect(deployer) as any).addYield(seededYield);
+  await (lender.connect(deployer) as any).addYield();
   const lenderBal: bigint = await lender.balance();
   const tvl = (await vault.totalRaised() as bigint)
             - (await vault.totalReleasedGlobal() as bigint)
@@ -295,9 +274,9 @@ async function main() {
   ok(inv2Claimed > 0n, `investor2 claimed yield: ${fmt6(inv2Claimed)} USDC`);
 
   /* ══════════════════════════════════════════════════════
-   * 9. AMM SWAP (buy & sell CommitToken)
+   * 8. AMM SWAP (buy & sell CommitToken)
    * ══════════════════════════════════════════════════════ */
-  console.log("\n► [9] AMM swap…");
+  console.log("\n► [8] AMM swap…");
 
   const rUsdc:   bigint = await amm.poolUsdc(1n);
   const rCommit: bigint = await amm.poolCommit(1n);
@@ -326,9 +305,9 @@ async function main() {
   }
 
   /* ══════════════════════════════════════════════════════
-   * 10. REVENUE ROUTER (release fee)
+   * 9. REVENUE ROUTER (release fee)
    * ══════════════════════════════════════════════════════ */
-  console.log("\n► [10] Revenue router (release fee)…");
+  console.log("\n► [9] Revenue router (release fee)…");
 
   // Milestone 3 release (veto was cleared earlier)
   await (vault.connect(founder) as any).requestRelease(1n);
@@ -337,24 +316,9 @@ async function main() {
   ok(true, "Milestone 3 released — revenue router received fee without revert");
 
   /* ══════════════════════════════════════════════════════
-   * 11. WORLDID ADAPTER — malformed proof rejection
+   * 10. ADMIN TRANSFER (two-step)
    * ══════════════════════════════════════════════════════ */
-  console.log("\n► [11] WorldIDVerifierAdapter — malformed proof rejection…");
-
-  const wiaC    = await ethers.getContractFactory("WorldIDVerifierAdapter");
-  const dummyWR = ethers.Wallet.createRandom().address;
-  const adapter = (await (await wiaC.deploy(dummyWR, "app_test", "invest")).waitForDeployment()) as any;
-
-  let adapterRejected = false;
-  try {
-    await adapter.verify(investor1.address, ethers.toUtf8Bytes("not_a_real_proof"));
-  } catch { adapterRejected = true; }
-  ok(adapterRejected, "WorldIDVerifierAdapter reverts on malformed proof (expected)");
-
-  /* ══════════════════════════════════════════════════════
-   * 12. ADMIN TRANSFER (two-step)
-   * ══════════════════════════════════════════════════════ */
-  console.log("\n► [12] Admin transfer (two-step)…");
+  console.log("\n► [10] Admin transfer (two-step)…");
 
   await vault.transferAdmin(stranger.address);
   ok((await vault.pendingAdmin()) === stranger.address, "Pending admin set");

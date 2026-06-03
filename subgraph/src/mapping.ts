@@ -14,7 +14,6 @@ import {
 } from "../generated/CrowdVault/CrowdVault";
 import {
   FeeSet,
-  LiquidityRemoved,
   Seeded,
   Swap as SwapEvent,
 } from "../generated/CommitmentAMM/CommitmentAMM";
@@ -105,6 +104,7 @@ function getOrCreateProject(projectId: BigInt, timestamp: BigInt, block: BigInt)
     project.name = "";
     project.description = "";
     project.additionalFilesUrl = "";
+    project.iconUrl = "";
     project.metadataUri = "";
     project.totalRaised = ZERO_BI;
     project.totalReleased = ZERO_BI;
@@ -258,6 +258,7 @@ export function handleProjectCreated(event: ProjectCreated): void {
   project.name = event.params.name;
   project.description = event.params.description;
   project.additionalFilesUrl = event.params.additionalFilesUrl;
+  project.iconUrl = event.params.iconUrl;
   updateProjectTimestamp(project, event.block.timestamp, event.block.number);
   project.save();
 
@@ -476,40 +477,6 @@ export function handleSeeded(event: Seeded): void {
     event.params.usdcIn,
     event.params.commitIn,
     pool.spotPriceUsdcPerCommit,
-    event.block.timestamp,
-    event.block.number,
-  );
-
-  updateProjectTimestamp(project, event.block.timestamp, event.block.number);
-  project.save();
-}
-
-export function handleLiquidityRemoved(event: LiquidityRemoved): void {
-  const project = getOrCreateProject(
-    event.params.projectId,
-    event.block.timestamp,
-    event.block.number,
-  );
-  const pool = getOrCreatePool(event.params.projectId, event.block.timestamp, event.block.number);
-  pool.reserveUsdc = ZERO_BI;
-  pool.reserveCommit = ZERO_BI;
-  pool.seeded = false;
-  pool.spotPriceUsdcPerCommit = ZERO_BD;
-  pool.updatedAt = event.block.timestamp;
-  pool.updatedAtBlock = event.block.number;
-  pool.save();
-
-  saveAmmTransaction(
-    eventId(event.transaction.hash, event.logIndex),
-    event.transaction.hash,
-    event.logIndex,
-    project,
-    pool,
-    "LIQUIDITY_REMOVED",
-    Address.zero(),
-    event.params.usdcOut,
-    event.params.commitOut,
-    ZERO_BD,
     event.block.timestamp,
     event.block.number,
   );

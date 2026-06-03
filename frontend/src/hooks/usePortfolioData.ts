@@ -102,6 +102,7 @@ export interface PortfolioPosition {
   hasApproved: boolean;
   releaseApproved: boolean;
   metadataUri: string;
+  iconUrl: string;
   /** Proportional share of total claimable yield */
   yieldClaimable: number;
   milestoneDeadline: bigint;
@@ -141,6 +142,7 @@ export interface FounderProject {
   milestonesCompleted: number;
   metadataUri: string;
   additionalFilesUrl: string;
+  iconUrl: string;
   milestoneDeadline: bigint;
   milestoneWindow: number;
   timeoutActive: boolean;
@@ -173,6 +175,7 @@ interface NormalizedProject {
   name: string;
   description: string;
   additionalFilesUrl: string;
+  iconUrl: string;
   totalAmmSeeded: bigint;
   milestoneWindow: bigint;
   milestoneDeadline: bigint;
@@ -200,13 +203,14 @@ function normalizeProject(projRaw: Record<string, unknown> | readonly unknown[])
       name: String(projRaw[12] ?? ""),
       description: String(projRaw[13] ?? ""),
       additionalFilesUrl: String(projRaw[14] ?? ""),
-      totalAmmSeeded: (projRaw[15] ?? 0n) as bigint,
-      milestoneWindow: (projRaw[16] ?? 0n) as bigint,
-      milestoneDeadline: (projRaw[17] ?? 0n) as bigint,
-      timeoutActive: Boolean(projRaw[18]),
-      timeoutOpenedAt: (projRaw[19] ?? 0n) as bigint,
-      projectDead: Boolean(projRaw[20]),
-      releaseApproved: Boolean(projRaw[21]),
+      iconUrl: String(projRaw[15] ?? ""),
+      totalAmmSeeded: (projRaw[16] ?? 0n) as bigint,
+      milestoneWindow: (projRaw[17] ?? 0n) as bigint,
+      milestoneDeadline: (projRaw[18] ?? 0n) as bigint,
+      timeoutActive: Boolean(projRaw[19]),
+      timeoutOpenedAt: (projRaw[20] ?? 0n) as bigint,
+      projectDead: Boolean(projRaw[21]),
+      releaseApproved: Boolean(projRaw[22]),
     };
   }
 
@@ -227,6 +231,7 @@ function normalizeProject(projRaw: Record<string, unknown> | readonly unknown[])
     name: String(projObj.name ?? ""),
     description: String(projObj.description ?? ""),
     additionalFilesUrl: String(projObj.additionalFilesUrl ?? ""),
+    iconUrl: String(projObj.iconUrl ?? ""),
     totalAmmSeeded: (projObj.totalAmmSeeded ?? 0n) as bigint,
     milestoneWindow: (projObj.milestoneWindow ?? 0n) as bigint,
     milestoneDeadline: (projObj.milestoneDeadline ?? 0n) as bigint,
@@ -370,6 +375,7 @@ export function usePortfolioData() {
           milestonesCompleted,
           metadataUri: project.metadataUri,
           additionalFilesUrl: project.additionalFilesUrl,
+          iconUrl: project.iconUrl,
           milestoneDeadline: project.milestoneDeadline,
           milestoneWindow: Number(project.milestoneWindow),
           timeoutActive: project.timeoutActive,
@@ -762,6 +768,7 @@ export function usePortfolioData() {
           hasApproved:         approvedRelease,
           releaseApproved:     proj.releaseApproved,
           metadataUri:         proj.metadataUri,
+          iconUrl:             proj.iconUrl,
           yieldClaimable:      0, // filled below
           milestoneDeadline:   proj.milestoneDeadline,
           milestoneWindow:     Number(proj.milestoneWindow),

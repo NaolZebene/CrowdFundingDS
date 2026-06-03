@@ -24,7 +24,7 @@ dataSources:
         - name: CrowdVault
           file: ./abis/CrowdVault.json
       eventHandlers:
-        - event: ProjectCreated(indexed uint256,address,address,uint256,string,string,string,string)
+        - event: ProjectCreated(indexed uint256,address,address,uint256,string,string,string,string,string)
           handler: handleProjectCreated
         - event: ProjectApproved(indexed uint256)
           handler: handleProjectApproved
@@ -72,8 +72,6 @@ dataSources:
       eventHandlers:
         - event: Seeded(indexed uint256,uint256,uint256)
           handler: handleSeeded
-        - event: LiquidityRemoved(indexed uint256,uint256,uint256)
-          handler: handleLiquidityRemoved
         - event: FeeSet(uint256)
           handler: handleFeeSet
         - event: Swap(indexed uint256,indexed address,address,uint256,address,uint256)

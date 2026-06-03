@@ -3,8 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 
-/// @title CommitmentToken — ERC-1155 semi-fungible token
-/// @notice Each projectId is a distinct token ID; balances are fungible within a project.
+
 contract CommitmentToken is ERC1155 {
     string public name;
     string public symbol;
@@ -41,7 +40,6 @@ contract CommitmentToken is ERC1155 {
         minter = newMinter;
     }
 
-    /// @notice Mint `amount` of project-`projectId` tokens to `to`. Only callable by minter (CrowdVault).
     function mint(
         uint256 projectId,
         address to,
@@ -52,7 +50,6 @@ contract CommitmentToken is ERC1155 {
         emit Mint(projectId, to, amount);
     }
 
-    /// @notice Burn `amount` of project-`projectId` tokens from `from`. Only callable by minter (CrowdVault).
     function burn(
         uint256 projectId,
         address from,

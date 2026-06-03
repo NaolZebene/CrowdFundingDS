@@ -1,6 +1,11 @@
 import { network } from "hardhat";
 
 const USDC = 1_000_000n;
+const SEPOLIA_USDC = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
+const ERC20_ABI = [
+  "function balanceOf(address account) view returns (uint256)",
+  "function approve(address spender, uint256 amount) returns (bool)",
+] as const;
 const DAY = 86_400;
 
 async function main() {
@@ -13,27 +18,34 @@ async function main() {
     await ethers.provider.send("evm_mine", []);
   };
 
-  const MockUSDC = await ethers.getContractFactory("MockUSDC");
-  const usdc = await MockUSDC.deploy();
-  await usdc.waitForDeployment();
+  const usdc = await ethers.getContractAt(ERC20_ABI, SEPOLIA_USDC);
 
   const CommitmentToken = await ethers.getContractFactory("CommitmentToken");
   const commit = await CommitmentToken.deploy(admin.address, "Nest Token", "NST");
   await commit.waitForDeployment();
 
   const MockLender = await ethers.getContractFactory("MockLender");
-  const lender = await MockLender.deploy(await usdc.getAddress());
+  const lender = await MockLender.deploy(SEPOLIA_USDC);
   await lender.waitForDeployment();
 
+  const RevenueRouter = await ethers.getContractFactory("RevenueRouter");
+  const router = await RevenueRouter.deploy(SEPOLIA_USDC);
+  await router.waitForDeployment();
+
   const Vault = await ethers.getContractFactory("CrowdVault");
-  const vault = await Vault.deploy(await usdc.getAddress(), await commit.getAddress());
+  const vault = await Vault.deploy(
+    SEPOLIA_USDC,
+    await commit.getAddress(),
+    await router.getAddress()
+  );
   await vault.waitForDeployment();
 
+  await (await router.setVault(await vault.getAddress())).wait();
   await (await commit.setMinter(await vault.getAddress())).wait();
+  await (await lender.setWithdrawer(await vault.getAddress())).wait();
   await (await vault.setLender(await lender.getAddress())).wait();
 
   const goal = 10n * USDC;
-  await (await usdc.mint(backer.address, goal)).wait();
 
   await (
     await vault.createProject(
@@ -41,6 +53,7 @@ async function main() {
       2,
       "Timeout Refund Project",
       "Local timeout/refund test project",
+      "",
       "",
       "",
       goal,

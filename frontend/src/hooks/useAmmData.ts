@@ -212,7 +212,7 @@ export function useAmmData(
         const project = projectRes.result as readonly [
           string, string, bigint, bigint, bigint,
           bigint, bigint, boolean, string, bigint, bigint, boolean,
-          string, string, string, bigint,
+          string, string, string, string, bigint,
           bigint, bigint, boolean, bigint, boolean, boolean,
         ];
         totalRaised = toNum(project[3]);

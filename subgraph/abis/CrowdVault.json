@@ -42,6 +42,11 @@
         "indexed": false,
         "name": "additionalFilesUrl",
         "type": "string"
+      },
+      {
+        "indexed": false,
+        "name": "iconUrl",
+        "type": "string"
       }
     ],
     "anonymous": false

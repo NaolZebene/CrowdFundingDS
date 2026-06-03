@@ -10,7 +10,6 @@
     "seed:veto-test-project": "npx hardhat run scripts/create-veto-test-project.ts --network sepolia",
     "wire:real-modules": "npx hardhat run scripts/wire-real-modules.ts --network sepolia",
     "seed:yield": "npx hardhat run scripts/seed-yield.ts --network sepolia",
-    "reseed:amm-pools": "npx hardhat run scripts/reseed-amm-pools.ts --network sepolia",
     "simulate:amm-trades": "npx hardhat run scripts/simulate-amm-trades.ts --network sepolia",
     "test:amm-ready-project": "npx hardhat run scripts/test-amm-ready-project.ts",
     "test:veto-test-project": "npx hardhat run scripts/test-veto-test-project.ts",

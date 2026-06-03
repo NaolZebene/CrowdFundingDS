@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
+
 interface IERC20Swap {
     function transferFrom(
         address from,
@@ -11,7 +12,6 @@ interface IERC20Swap {
     function transfer(address to, uint256 amount) external returns (bool);
 }
 
-/// @notice ERC-1155 interface subset needed by the AMM
 interface ICommitSwap {
     function safeTransferFrom(
         address from,
@@ -25,10 +25,9 @@ interface ICommitSwap {
 interface ICrowdVault {
     function projectCount() external view returns (uint256);
     function ammProjectReady(uint256 projectId) external view returns (bool);
+    function registerFromAMM(uint256 projectId, address buyer) external;
 }
 
-/// @title CommitmentAMM — one pool per project, ERC-1155 based
-/// @notice Inherits ERC1155Holder so the contract can receive ERC-1155 tokens.
 contract CommitmentAMM is ERC1155Holder {
     IERC20Swap public immutable usdc;
     ICommitSwap public immutable commit;
@@ -37,12 +36,11 @@ contract CommitmentAMM is ERC1155Holder {
     address public admin;
     address public pendingAdmin;
 
-    // One pool per projectId
     mapping(uint256 => uint256) public poolUsdc;
     mapping(uint256 => uint256) public poolCommit;
     mapping(uint256 => bool) public seeded;
 
-    uint256 public feeBps = 30; // 0.30%
+    uint256 public feeBps = 30;
 
     error NotAdmin();
     error NotPendingAdmin();
@@ -70,10 +68,44 @@ contract CommitmentAMM is ERC1155Holder {
     event FeeSet(uint256 feeBps);
     event AdminTransferInitiated(address indexed newAdmin);
     event AdminTransferred(address indexed oldAdmin, address indexed newAdmin);
-    event LiquidityRemoved(uint256 indexed projectId, uint256 usdcOut, uint256 commitOut);
-
     modifier onlyAdmin() {
         if (msg.sender != admin) revert NotAdmin();
+        _;
+    }
+
+    modifier onlyVault() {
+        if (msg.sender != address(vault)) revert NotVault();
+        _;
+    }
+
+    modifier validProject(uint256 projectId) {
+        if (projectId == 0 || projectId > vault.projectCount())
+            revert BadProject();
+        _;
+    }
+
+    modifier projectTradable(uint256 projectId) {
+        if (!vault.ammProjectReady(projectId)) revert ProjectNotTradable();
+        _;
+    }
+
+    modifier notSeeded(uint256 projectId) {
+        if (seeded[projectId]) revert AlreadySeeded();
+        _;
+    }
+
+    modifier seededProject(uint256 projectId) {
+        if (!seeded[projectId]) revert NotSeeded();
+        _;
+    }
+
+    modifier nonEmptySeed(uint256 usdcIn, uint256 commitIn) {
+        if (usdcIn == 0 || commitIn == 0) revert EmptyPool();
+        _;
+    }
+
+    modifier nonZeroAmount(uint256 amount) {
+        if (amount == 0) revert ZeroAmount();
         _;
     }
 
@@ -89,7 +121,7 @@ contract CommitmentAMM is ERC1155Holder {
     }
 
     function setFee(uint256 feeBps_) external onlyAdmin {
-        if (feeBps_ > 1000) revert FeeTooHigh(); // max 10%
+        if (feeBps_ > 1000) revert FeeTooHigh();
         feeBps = feeBps_;
         emit FeeSet(feeBps_);
     }
@@ -107,64 +139,25 @@ contract CommitmentAMM is ERC1155Holder {
         pendingAdmin = address(0);
     }
 
-    function seed(
-        uint256 projectId,
-        uint256 usdcIn,
-        uint256 commitIn
-    ) external onlyAdmin {
-        if (projectId == 0 || projectId > vault.projectCount())
-            revert BadProject();
-        if (!vault.ammProjectReady(projectId)) revert ProjectNotTradable();
-        if (seeded[projectId]) revert AlreadySeeded();
-        if (usdcIn == 0 || commitIn == 0) revert EmptyPool();
-        if (!usdc.transferFrom(msg.sender, address(this), usdcIn))
-            revert TransferFailed();
-        commit.safeTransferFrom(
-            msg.sender,
-            address(this),
-            projectId,
-            commitIn,
-            ""
-        );
-        poolUsdc[projectId] = usdcIn;
-        poolCommit[projectId] = commitIn;
-        seeded[projectId] = true;
-        emit Seeded(projectId, usdcIn, commitIn);
-    }
-
-    /// @notice Called by CrowdVault after it transfers USDC and mints matching
-    /// CommitTokens to this AMM. This opens trading without an admin seed tx.
     function seedFromVault(
         uint256 projectId,
         uint256 usdcIn,
         uint256 commitIn
-    ) external {
-        if (msg.sender != address(vault)) revert NotVault();
-        if (projectId == 0 || projectId > vault.projectCount())
-            revert BadProject();
-        if (!vault.ammProjectReady(projectId)) revert ProjectNotTradable();
-        if (seeded[projectId]) revert AlreadySeeded();
-        if (usdcIn == 0 || commitIn == 0) revert EmptyPool();
+    )
+        external
+        onlyVault
+        validProject(projectId)
+        projectTradable(projectId)
+        notSeeded(projectId)
+        nonEmptySeed(usdcIn, commitIn)
+    {
         poolUsdc[projectId] = usdcIn;
-        poolCommit[projectId] = commitIn;
-        seeded[projectId] = true;
-        emit Seeded(projectId, usdcIn, commitIn);
-    }
 
-    function removeLiquidity(uint256 projectId) external onlyAdmin {
-        if (!seeded[projectId]) revert NotSeeded();
-        uint256 usdcOut = poolUsdc[projectId];
-        uint256 commitOut = poolCommit[projectId];
-        poolUsdc[projectId] = 0;
-        poolCommit[projectId] = 0;
-        seeded[projectId] = false;
-        if (usdcOut > 0) {
-            if (!usdc.transfer(admin, usdcOut)) revert TransferFailed();
-        }
-        if (commitOut > 0) {
-            commit.safeTransferFrom(address(this), admin, projectId, commitOut, "");
-        }
-        emit LiquidityRemoved(projectId, usdcOut, commitOut);
+        poolCommit[projectId] = commitIn;
+
+        seeded[projectId] = true;
+
+        emit Seeded(projectId, usdcIn, commitIn);
     }
 
     function getAmountOut(
@@ -181,10 +174,13 @@ contract CommitmentAMM is ERC1155Holder {
         uint256 projectId,
         uint256 commitIn,
         uint256 minUsdcOut
-    ) external returns (uint256 out) {
-        if (commitIn == 0) revert ZeroAmount();
-        if (!seeded[projectId]) revert NotSeeded();
-        if (!vault.ammProjectReady(projectId)) revert ProjectNotTradable();
+    )
+        external
+        nonZeroAmount(commitIn)
+        seededProject(projectId)
+        projectTradable(projectId)
+        returns (uint256 out)
+    {
         uint256 rUsdc = poolUsdc[projectId];
         uint256 rCommit = poolCommit[projectId];
         out = getAmountOut(commitIn, rCommit, rUsdc);
@@ -213,19 +209,28 @@ contract CommitmentAMM is ERC1155Holder {
         uint256 projectId,
         uint256 usdcIn,
         uint256 minCommitOut
-    ) external returns (uint256 out) {
-        if (usdcIn == 0) revert ZeroAmount();
-        if (!seeded[projectId]) revert NotSeeded();
-        if (!vault.ammProjectReady(projectId)) revert ProjectNotTradable();
+    )
+        external
+        nonZeroAmount(usdcIn)
+        seededProject(projectId)
+        projectTradable(projectId)
+        returns (uint256 out)
+    {
         uint256 rUsdc = poolUsdc[projectId];
         uint256 rCommit = poolCommit[projectId];
+
         out = getAmountOut(usdcIn, rUsdc, rCommit);
+
         if (out < minCommitOut) revert Slippage();
+
         poolUsdc[projectId] = rUsdc + usdcIn;
         poolCommit[projectId] = rCommit - out;
+
+        
         if (!usdc.transferFrom(msg.sender, address(this), usdcIn))
             revert TransferFailed();
         commit.safeTransferFrom(address(this), msg.sender, projectId, out, "");
+        vault.registerFromAMM(projectId, msg.sender);
         emit Swap(
             projectId,
             msg.sender,

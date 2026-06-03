@@ -32,6 +32,7 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
   const [projectDescription, setProjectDescription] = useState("");
   const [offchainMetadataUri, setOffchainMetadataUri] = useState("");
   const [additionalFilesUrl, setAdditionalFilesUrl] = useState("");
+  const [iconUrl, setIconUrl] = useState("");
   const [fundingGoalUsdc, setFundingGoalUsdc] = useState("");
   const [deadline, setDeadline] = useState("");
   const [milestoneWindowDays, setMilestoneWindowDays] = useState("60");
@@ -90,6 +91,7 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
       name: projectName.trim(),
       description: projectDescription.trim(),
       additionalFilesUrl: additionalFilesUrl.trim(),
+      iconUrl: iconUrl.trim(),
       metadataUri,
       fundingGoalUsdc: fundingGoalUsdc || "0",
       fundingDeadlineUnix,
@@ -200,8 +202,8 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
                 className="w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary/50"
               />
               <p className="text-[10px] text-muted-foreground mt-1">
-                {fundingGoalUsdc === "0" || fundingGoalUsdc === "" 
-                  ? "Optional when goal is 0." 
+                {fundingGoalUsdc === "0" || fundingGoalUsdc === ""
+                  ? "Optional when goal is 0."
                   : "Default: 30 days if not set."}
               </p>
             </div>
@@ -241,6 +243,18 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
           </div>
 
           <div className="grid grid-cols-1 gap-3">
+            <div>
+              <label className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium block mb-1.5">
+                Project Icon URL
+              </label>
+              <input
+                type="text"
+                value={iconUrl}
+                onChange={(e) => setIconUrl(e.target.value)}
+                placeholder="ipfs://... or https://... (logo/icon)"
+                className="w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary/50 placeholder:text-muted-foreground/50"
+              />
+            </div>
             <div>
               <label className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium block mb-1.5">
                 Additional Files URL
@@ -287,10 +301,10 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
               {!isConnected
                 ? "Connect Wallet"
                 : isSubmitting
-                ? "Confirming..."
-                : needsFeeApproval
-                ? "Approve Fee"
-                : "Submit Project"}
+                  ? "Confirming..."
+                  : needsFeeApproval
+                    ? "Approve Fee"
+                    : "Submit Project"}
             </Button>
           </div>
         </div>

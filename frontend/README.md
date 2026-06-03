@@ -14,7 +14,7 @@ Project funding uses real Sepolia USDC at `0x1c7D4B196Cb0C7B01d743Fbc6116a902379
 
 ## Real module wiring
 
-The frontend reads the deployed `CrowdVault`, `CommitmentAMM`, `RevenueRouter`, lender, oracle, and ZK verifier addresses from `src/config/contracts.ts`. For Sepolia, make sure the vault's on-chain `lender`, `oracle`, and approved ZK verifier match those configured addresses. The admin dashboard shows mismatches and includes buttons to connect the configured modules.
+The frontend reads the deployed `CrowdVault`, `CommitmentAMM`, `RevenueRouter`, and lender addresses from `src/config/contracts.ts`. For Sepolia, make sure the vault's on-chain `lender`, `AMM`, and revenue router match those configured addresses. The admin dashboard shows mismatches and includes buttons to connect the configured modules.
 
 Example:
 

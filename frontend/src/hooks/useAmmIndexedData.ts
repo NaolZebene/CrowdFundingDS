@@ -14,7 +14,7 @@ export interface AmmChartPoint {
 
 export interface AmmTradeItem {
   id: string;
-  side: "BUY" | "SELL" | "SEED" | "LIQUIDITY_REMOVED";
+  side: "BUY" | "SELL" | "SEED";
   user: string;
   usdcAmount: number;
   commitAmount: number;
@@ -181,7 +181,7 @@ export function useAmmIndexedData(projectId: number, range: ChartRange) {
   const recentTrades: AmmTradeItem[] = ((data?.ammTransactions ?? []) as Array<{
     id: string;
     txHash: string;
-    kind: "BUY" | "SELL" | "SEED" | "LIQUIDITY_REMOVED";
+    kind: "BUY" | "SELL" | "SEED";
     user: string;
     amountUsdc: string;
     amountCommit: string;

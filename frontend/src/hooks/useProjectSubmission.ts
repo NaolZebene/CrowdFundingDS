@@ -20,6 +20,7 @@ export interface SubmitProjectInput {
   name: string;
   description: string;
   additionalFilesUrl: string;
+  iconUrl: string;
   metadataUri: string;
   fundingGoalUsdc: string;
   fundingDeadlineUnix: number;
@@ -83,6 +84,7 @@ export function useProjectSubmission() {
       input.name,
       input.description,
       input.additionalFilesUrl,
+      input.iconUrl,
       input.metadataUri,
       parseUnits(input.fundingGoalUsdc || "0", USDC_DECIMALS),
       BigInt(input.fundingDeadlineUnix),

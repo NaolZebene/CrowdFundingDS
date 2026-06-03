@@ -7,6 +7,7 @@ type Project @entity(immutable: false) {
   name: String!
   description: String!
   additionalFilesUrl: String!
+  iconUrl: String!
   metadataUri: String!
   totalRaised: BigInt!
   totalReleased: BigInt!

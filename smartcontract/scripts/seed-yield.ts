@@ -11,23 +11,16 @@ function parseUsdc(value: string): bigint {
 
 async function main() {
   const amountInput = process.env.SEED_YIELD_USDC?.trim();
-  const reserveInput = process.env.FUND_LENDER_RESERVE_USDC?.trim();
-  const shouldDrip = process.env.DRIP_LENDER_RESERVE !== "false";
-  const dripBpsInput = process.env.LENDER_DRIP_BPS?.trim();
 
-  if (!amountInput && !reserveInput && !shouldDrip && !dripBpsInput) {
+  if (!amountInput) {
     throw new Error(
       "Nothing to do. Examples:\n" +
-      "  FUND_LENDER_RESERVE_USDC=50 npm run seed:yield\n" +
-      "  DRIP_LENDER_RESERVE=true npm run seed:yield\n" +
       "  SEED_YIELD_USDC=0.01 npm run seed:yield",
     );
   }
 
-  const directYieldAmount = amountInput ? parseUsdc(amountInput) : 0n;
-  const reserveAmount = reserveInput ? parseUsdc(reserveInput) : 0n;
+  const directYieldAmount = parseUsdc(amountInput);
   if (amountInput && directYieldAmount <= 0n) throw new Error("SEED_YIELD_USDC must be greater than 0.");
-  if (reserveInput && reserveAmount <= 0n) throw new Error("FUND_LENDER_RESERVE_USDC must be greater than 0.");
 
   const { ethers, networkName } = await network.connect();
   const [sender] = await ethers.getSigners();
@@ -48,13 +41,9 @@ async function main() {
   );
   const lenderContract = await ethers.getContractAt(
     [
-      "function addYield(uint256 amount)",
-      "function fundReserve(uint256 amount)",
-      "function dripReserveYield() returns (uint256)",
-      "function setDripBps(uint256 dripBps)",
-      "function reserveBalance() view returns (uint256)",
+      "function addYield()",
+      "function YIELD_AMOUNT() view returns (uint256)",
       "function accruedYield() view returns (uint256)",
-      "function dripBps() view returns (uint256)",
     ],
     lender,
   );
@@ -62,41 +51,21 @@ async function main() {
   console.log("Network:", networkName);
   console.log("Sender:", sender.address);
   console.log("Lender:", lender);
-  console.log("Current reserve:", ethers.formatUnits(await lenderContract.reserveBalance(), 6), "USDC");
   console.log("Current accrued yield:", ethers.formatUnits(await lenderContract.accruedYield(), 6), "USDC");
 
   const balance = await usdc.balanceOf(sender.address);
-  const transferTotal = directYieldAmount + reserveAmount;
-  if (balance < transferTotal) {
+  if (balance < directYieldAmount) {
     throw new Error(`Not enough USDC. Sender has ${ethers.formatUnits(balance, 6)} USDC.`);
   }
 
-  if (dripBpsInput) {
-    const dripBps = BigInt(dripBpsInput);
-    await (await lenderContract.setDripBps(dripBps)).wait();
-    console.log("Drip bps set:", dripBps.toString());
+  const contractYieldAmount = await lenderContract.YIELD_AMOUNT();
+  if (directYieldAmount !== contractYieldAmount) {
+    throw new Error(`MockLender uses a fixed yield amount of ${ethers.formatUnits(contractYieldAmount, 6)} USDC.`);
   }
-
-  if (reserveAmount > 0n) {
-    console.log("Funding lender reserve:", ethers.formatUnits(reserveAmount, 6), "USDC");
-    await (await usdc.approve(lender, reserveAmount)).wait();
-    await (await lenderContract.fundReserve(reserveAmount)).wait();
-    console.log("Reserve funded.");
-  }
-
-  if (directYieldAmount > 0n) {
-    console.log("Seeding direct yield:", ethers.formatUnits(directYieldAmount, 6), "USDC");
-    await (await usdc.approve(lender, directYieldAmount)).wait();
-    await (await lenderContract.addYield(directYieldAmount)).wait();
-    console.log("Direct yield added to lender.");
-  }
-
-  if (shouldDrip) {
-    const before = await lenderContract.accruedYield();
-    await (await lenderContract.dripReserveYield()).wait();
-    const after = await lenderContract.accruedYield();
-    console.log("Reserve dripped:", ethers.formatUnits(after - before, 6), "USDC");
-  }
+  console.log("Seeding direct yield:", ethers.formatUnits(contractYieldAmount, 6), "USDC");
+  await (await usdc.approve(lender, contractYieldAmount)).wait();
+  await (await lenderContract.addYield()).wait();
+  console.log("Direct yield added to lender.");
 
   try {
     await (await vault.harvestYield()).wait();
@@ -108,7 +77,6 @@ async function main() {
       throw e;
     }
   }
-  console.log("Remaining reserve:", ethers.formatUnits(await lenderContract.reserveBalance(), 6), "USDC");
   console.log("Remaining accrued yield:", ethers.formatUnits(await lenderContract.accruedYield(), 6), "USDC");
 
   if (investor) {

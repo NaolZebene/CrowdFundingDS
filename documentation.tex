@@ -1,0 +1,1334 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue
+}
+
+\lstdefinelanguage{Solidity}{
+  keywords={pragma, solidity, contract, interface, function, returns, external, public, internal, private, view, pure, payable, modifier, event, emit, mapping, address, uint256, uint8, bool, string, bytes, memory, calldata, immutable, indexed, require},
+  keywordstyle=\color{blue}\bfseries,
+  identifierstyle=\color{black},
+  comment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  commentstyle=\color{gray},
+  stringstyle=\color{teal},
+  morestring=[b]",
+  sensitive=true
+}
+
+\lstset{
+  language=Solidity,
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible
+}
+
+\title{CrowdFundingDS Technical Documentation}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Smart Contracts}
+
+\subsection{CommitmentToken.sol}
+
+\subsubsection{Purpose}
+
+\texttt{CommitmentToken.sol} defines the token used to represent a user's stake in a crowdfunding project. When a user invests USDC into a project through \texttt{CrowdVault}, the vault mints CommitmentTokens for that user. These tokens are later used for voting, refunds, yield tracking, and AMM trading.
+
+The important idea is:
+
+\begin{quote}
+Each project has its own CommitmentToken ID inside one ERC-1155 contract.
+\end{quote}
+
+For example:
+
+\begin{itemize}
+  \item Token ID \texttt{1} represents CommitmentTokens for project \texttt{1}.
+  \item Token ID \texttt{2} represents CommitmentTokens for project \texttt{2}.
+  \item Token ID \texttt{3} represents CommitmentTokens for project \texttt{3}.
+\end{itemize}
+
+This avoids deploying a new ERC-20 token contract for every project.
+
+\subsubsection{ERC-1155 Design}
+
+The contract inherits from OpenZeppelin's ERC-1155 implementation:
+
+\begin{lstlisting}
+import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+
+contract CommitmentToken is ERC1155 {
+    ...
+}
+\end{lstlisting}
+
+ERC-1155 is a multi-token standard. Unlike ERC-20, which usually represents only one token, ERC-1155 allows one smart contract to manage many token types. This is why it fits the crowdfunding model: every project can be represented by a different token ID.
+
+The constructor calls:
+
+\begin{lstlisting}
+ERC1155("")
+\end{lstlisting}
+
+The empty string means the contract is not using the ERC-1155 metadata URI mechanism directly. In this project, project metadata is stored in \texttt{CrowdVault}, not inside \texttt{CommitmentToken}.
+
+Normally, an ERC-1155 URI could look like:
+
+\begin{lstlisting}
+ERC1155("https://api.example.com/tokens/{id}.json")
+\end{lstlisting}
+
+The \texttt{\{id\}} placeholder is replaced by the token ID. For example, token ID \texttt{1} could point to metadata for project \texttt{1}, and token ID \texttt{2} could point to metadata for project \texttt{2}. That metadata could describe the token name, description, image, and other display information.
+
+This project leaves the URI empty because the token contract is intentionally focused on balances, minting, burning, and transfers. The richer project data, such as project name, description, metadata URI, and additional files URL, lives in \texttt{CrowdVault}. This keeps \texttt{CommitmentToken} small and makes \texttt{CrowdVault} the source of truth for project-level information.
+
+\subsubsection{What OpenZeppelin Provides}
+
+OpenZeppelin is a library of reusable and audited smart contract building blocks. By importing and inheriting \texttt{ERC1155}, this contract receives the standard ERC-1155 behavior without reimplementing it from scratch.
+
+\begin{lstlisting}
+import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+
+contract CommitmentToken is ERC1155 {
+    ...
+}
+\end{lstlisting}
+
+In the background, Solidity compiles the inherited OpenZeppelin logic together with this contract. That inherited logic provides functions such as:
+
+\begin{itemize}
+  \item \texttt{balanceOf(owner, id)}
+  \item \texttt{safeTransferFrom(from, to, id, amount, data)}
+  \item \texttt{setApprovalForAll(operator, approved)}
+  \item \texttt{isApprovedForAll(owner, operator)}
+  \item \texttt{\_mint(to, id, amount, data)}
+  \item \texttt{\_burn(from, id, amount)}
+\end{itemize}
+
+Conceptually, OpenZeppelin's ERC-1155 implementation stores balances like this:
+
+\begin{lstlisting}
+mapping(uint256 tokenId => mapping(address owner => uint256 balance))
+\end{lstlisting}
+
+So project-specific balances behave like:
+
+\begin{itemize}
+  \item \texttt{balances[1][Alice]} = Alice's project 1 CommitmentTokens.
+  \item \texttt{balances[2][Alice]} = Alice's project 2 CommitmentTokens.
+  \item \texttt{balances[1][Bob]} = Bob's project 1 CommitmentTokens.
+\end{itemize}
+
+OpenZeppelin also emits the standard ERC-1155 transfer events and performs safe-transfer receiver checks when tokens are sent to smart contracts. This is why the AMM inherits \texttt{ERC1155Holder}: it proves that the AMM contract can safely receive ERC-1155 tokens.
+
+\subsubsection{Name, Symbol, and Decimals}
+
+The contract stores simple display information:
+
+\begin{lstlisting}
+string public name;
+string public symbol;
+uint8 public decimals = 6;
+\end{lstlisting}
+
+\texttt{name} and \texttt{symbol} identify the token in the frontend or external tools. The \texttt{decimals} value is set to \texttt{6}, matching USDC. This is useful because the system treats the relationship as:
+
+\begin{quote}
+1 USDC invested = 1 CommitmentToken minted.
+\end{quote}
+
+Since USDC uses 6 decimals, CommitmentTokens also use 6 decimals for consistent accounting.
+
+ERC-1155 does not standardize \texttt{decimals} in the same way ERC-20 does. Here, \texttt{decimals} is added as a public helper value so applications can interpret balances correctly.
+
+\subsubsection{Minter Role}
+
+The contract has a single authorized minter:
+
+\begin{lstlisting}
+address public minter;
+\end{lstlisting}
+
+Only this address can mint or burn CommitmentTokens. The restriction is enforced by the \texttt{onlyMinter} modifier:
+
+\begin{lstlisting}
+modifier onlyMinter() {
+    require(msg.sender == minter, "not minter");
+    _;
+}
+\end{lstlisting}
+
+In the full system, the minter should be \texttt{CrowdVault}. A typical deployment flow is:
+
+\begin{enumerate}
+  \item Deploy \texttt{CommitmentToken} with the deployer as the temporary minter.
+  \item Deploy \texttt{CrowdVault}.
+  \item Call \texttt{setMinter(vaultAddress)}.
+  \item From that point onward, only \texttt{CrowdVault} can mint or burn CommitmentTokens.
+\end{enumerate}
+
+This prevents users, founders, or the AMM from creating fake project stake.
+
+\subsubsection{Changing the Minter}
+
+The minter can be changed with:
+
+\begin{lstlisting}
+function setMinter(address newMinter) external onlyMinter {
+    require(newMinter != address(0), "minter cannot be zero address");
+    emit MinterChanged(minter, newMinter);
+    minter = newMinter;
+}
+\end{lstlisting}
+
+Only the current minter can transfer minter rights. The zero address is rejected to avoid accidentally leaving the contract without a valid controller.
+
+\subsubsection{Project Supply Tracking}
+
+The contract tracks total supply per project:
+
+\begin{lstlisting}
+mapping(uint256 => uint256) public totalSupplyByProject;
+\end{lstlisting}
+
+This mapping answers questions like:
+
+\begin{itemize}
+  \item How many CommitmentTokens exist for project \texttt{1}?
+  \item How much total voting power exists for project \texttt{2}?
+  \item How much supply should be considered when calculating refunds?
+\end{itemize}
+
+Basic ERC-1155 does not provide total supply tracking per token ID by default, so this contract stores it manually.
+
+This means the system tracks two related but different pieces of information:
+
+\begin{itemize}
+  \item OpenZeppelin's ERC-1155 balance tracking answers: who owns how many tokens?
+  \item \texttt{totalSupplyByProject} answers: how many tokens exist in total for this project?
+\end{itemize}
+
+For example, ERC-1155 can answer:
+
+\begin{lstlisting}
+balanceOf(Alice, 1)
+\end{lstlisting}
+
+which means ``how many project 1 tokens does Alice own?''
+
+But the vault also needs to answer:
+
+\begin{lstlisting}
+totalSupplyByProject(1)
+\end{lstlisting}
+
+which means ``how many project 1 tokens exist overall?''
+
+That total is needed for vote thresholds and refund calculations. For example, if a project has 1000 CommitmentTokens in circulation and 300 tokens vote to veto, the vault can calculate that 30\% of the project stake voted to veto.
+
+OpenZeppelin also offers an \texttt{ERC1155Supply} extension that can track total supply per token ID automatically. This implementation performs that supply tracking manually through \texttt{totalSupplyByProject}.
+
+\subsubsection{Minting}
+
+The mint function is:
+
+\begin{lstlisting}
+function mint(
+    uint256 projectId,
+    address to,
+    uint256 amount
+) external onlyMinter {
+    totalSupplyByProject[projectId] += amount;
+    _mint(to, projectId, amount, "");
+    emit Mint(projectId, to, amount);
+}
+\end{lstlisting}
+
+This function:
+
+\begin{enumerate}
+  \item Checks that the caller is the minter.
+  \item Increases the tracked supply for the project.
+  \item Calls OpenZeppelin's internal ERC-1155 \texttt{\_mint}.
+  \item Emits a \texttt{Mint} event.
+\end{enumerate}
+
+Example:
+
+\begin{quote}
+If Alice invests 100 USDC in project 1, \texttt{CrowdVault} calls \texttt{mint(1, Alice, 100)}. Alice now owns 100 CommitmentTokens for project 1.
+\end{quote}
+
+The internal \texttt{\_mint} function comes from OpenZeppelin's ERC-1155 contract. It is marked internal, so external users cannot call it directly. Only this contract can call it from inside its own functions.
+
+In this line:
+
+\begin{lstlisting}
+_mint(to, projectId, amount, "");
+\end{lstlisting}
+
+OpenZeppelin updates the ERC-1155 balance for \texttt{to}. Conceptually, it does:
+
+\begin{lstlisting}
+balances[projectId][to] += amount;
+\end{lstlisting}
+
+It also emits the standard ERC-1155 \texttt{TransferSingle} event, which wallets, block explorers, and indexers can use to detect that tokens were created.
+
+So the mint function does two layers of accounting:
+
+\begin{itemize}
+  \item \texttt{totalSupplyByProject[projectId] += amount} updates this project's total supply.
+  \item \texttt{\_mint(to, projectId, amount, "")} updates the user's ERC-1155 balance.
+\end{itemize}
+
+\subsubsection{Burning}
+
+The burn function is:
+
+\begin{lstlisting}
+function burn(
+    uint256 projectId,
+    address from,
+    uint256 amount
+) external onlyMinter {
+    totalSupplyByProject[projectId] -= amount;
+    _burn(from, projectId, amount);
+    emit Burn(projectId, from, amount);
+}
+\end{lstlisting}
+
+This function:
+
+\begin{enumerate}
+  \item Checks that the caller is the minter.
+  \item Decreases the tracked supply for the project.
+  \item Calls OpenZeppelin's internal ERC-1155 \texttt{\_burn}.
+  \item Emits a \texttt{Burn} event.
+\end{enumerate}
+
+Burning is used when a user receives a refund. The user gives up their project stake, and the vault returns the corresponding USDC.
+
+Because the contract uses Solidity \texttt{0.8.20}, arithmetic underflow automatically reverts. If the burn amount is greater than the tracked supply, the subtraction fails. OpenZeppelin's \texttt{\_burn} also reverts if the account does not own enough tokens.
+
+\subsubsection{Events}
+
+The contract emits three custom events:
+
+\begin{lstlisting}
+event Mint(uint256 indexed projectId, address indexed to, uint256 value);
+event Burn(uint256 indexed projectId, address indexed from, uint256 value);
+event MinterChanged(address indexed oldMinter, address indexed newMinter);
+\end{lstlisting}
+
+These events make it easier for the frontend, indexers, and subgraphs to track token creation, token destruction, and minter changes.
+
+\subsubsection{How CrowdVault Uses CommitmentToken}
+
+\texttt{CrowdVault} uses \texttt{CommitmentToken} as the accounting and governance token for each project.
+
+When a user invests, the vault calls:
+
+\begin{lstlisting}
+commit.mint(projectId, msg.sender, amount);
+\end{lstlisting}
+
+When a user receives a refund, the vault calls:
+
+\begin{lstlisting}
+commit.burn(projectId, msg.sender, amount);
+\end{lstlisting}
+
+When a user votes, the vault checks:
+
+\begin{lstlisting}
+commit.balanceOf(msg.sender, projectId);
+\end{lstlisting}
+
+When the vault calculates vote thresholds or refund shares, it checks:
+
+\begin{lstlisting}
+commit.totalSupplyByProject(projectId);
+\end{lstlisting}
+
+So CommitmentTokens are used for:
+
+\begin{itemize}
+  \item investment representation,
+  \item voting power,
+  \item refund rights,
+  \item yield participation,
+  \item AMM trading.
+\end{itemize}
+
+\subsubsection{AMM Compatibility}
+
+Because CommitmentTokens are ERC-1155 tokens, users can transfer them and approve operators. To sell CommitmentTokens through the AMM, a user approves the AMM with:
+
+\begin{lstlisting}
+setApprovalForAll(AMM, true)
+\end{lstlisting}
+
+Then the AMM can transfer the specific project token ID from the user during a sale.
+
+\subsubsection{Important Security Notes}
+
+The token contract intentionally stays small and trusts the minter. It does not validate whether a \texttt{projectId} exists. That validation happens in \texttt{CrowdVault}. This means the correctness of minting and burning depends on the vault being the only minter.
+
+The most important security property is:
+
+\begin{quote}
+Only \texttt{CrowdVault} should be the minter in production.
+\end{quote}
+
+If the wrong address controls \texttt{minter}, that address could mint fake CommitmentTokens or burn user balances.
+
+\subsubsection{Summary}
+
+\texttt{CommitmentToken.sol} is a multi-project ERC-1155 token contract. Each project uses its \texttt{projectId} as the ERC-1155 token ID. The contract allows only one authorized minter, normally \texttt{CrowdVault}, to mint and burn tokens. These tokens represent user stake in projects and are used across the system for voting, refunds, yield accounting, and AMM trading.
+
+\subsection{RevenueRouter.sol}
+
+\subsubsection{Purpose}
+
+\texttt{RevenueRouter.sol} handles platform revenue. In the current design, platform revenue comes from release fees taken by \texttt{CrowdVault} when milestone funds are released.
+
+The simple flow is:
+
+\begin{quote}
+\texttt{CrowdVault} takes a release fee, sends that fee to \texttt{RevenueRouter}, and the router lets the admin collect it later.
+\end{quote}
+
+This makes \texttt{RevenueRouter} a small platform-fee vault. It does not distribute revenue to backers. It receives USDC, tracks how much revenue has arrived, and allows the platform owner/admin to collect the available amount.
+
+\subsubsection{USDC Interface}
+
+The contract defines a small ERC-20 interface:
+
+\begin{lstlisting}
+interface IERC20Pay {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+}
+\end{lstlisting}
+
+The router only needs two token operations:
+
+\begin{itemize}
+  \item \texttt{transferFrom}: pull revenue from \texttt{CrowdVault}.
+  \item \texttt{transfer}: send collected revenue to the admin.
+\end{itemize}
+
+The actual token used is USDC. The token address is passed once during deployment and stored as:
+
+\begin{lstlisting}
+IERC20Pay public immutable usdc;
+\end{lstlisting}
+
+Because \texttt{usdc} is immutable, the router always knows which token it receives and pays out.
+
+\subsubsection{Admin}
+
+The router stores:
+
+\begin{lstlisting}
+address public admin;
+\end{lstlisting}
+
+The admin is set in the constructor:
+
+\begin{lstlisting}
+constructor(address usdc_) {
+    usdc = IERC20Pay(usdc_);
+    admin = msg.sender;
+}
+\end{lstlisting}
+
+This means the deployer of \texttt{RevenueRouter} becomes the platform owner/admin. Only this address can collect revenue.
+
+The admin restriction is enforced by:
+
+\begin{lstlisting}
+modifier onlyAdmin() {
+    if (msg.sender != admin) revert NotAdmin();
+    _;
+}
+\end{lstlisting}
+
+\subsubsection{Revenue Tracking}
+
+The contract tracks two totals:
+
+\begin{lstlisting}
+uint256 public totalRevenueReceived;
+uint256 public totalCollected;
+\end{lstlisting}
+
+\texttt{totalRevenueReceived} means the total amount of USDC revenue that has entered the router over its lifetime.
+
+\texttt{totalCollected} means the total amount of USDC that the admin has already collected.
+
+The currently collectable amount is:
+
+\begin{lstlisting}
+totalRevenueReceived - totalCollected
+\end{lstlisting}
+
+\subsubsection{onRevenue}
+
+Revenue enters through:
+
+\begin{lstlisting}
+function onRevenue(uint256 amount) external {
+    if (amount == 0) revert ZeroAmount();
+    if (!usdc.transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
+    totalRevenueReceived += amount;
+    emit RevenueReceived(amount);
+}
+\end{lstlisting}
+
+This function is called by \texttt{CrowdVault} after the vault calculates a release fee.
+
+The function receives only an \texttt{amount}, not a token address, because the router already knows the revenue token:
+
+\begin{lstlisting}
+IERC20Pay public immutable usdc;
+\end{lstlisting}
+
+So calling:
+
+\begin{lstlisting}
+onRevenue(10_000_000)
+\end{lstlisting}
+
+means:
+
+\begin{quote}
+Pull \texttt{10\_000\_000} units of the stored USDC token from the caller into this router.
+\end{quote}
+
+Since USDC uses 6 decimals, \texttt{10\_000\_000} represents 10 USDC.
+
+The actual token transfer happens here:
+
+\begin{lstlisting}
+usdc.transferFrom(msg.sender, address(this), amount)
+\end{lstlisting}
+
+In normal use, \texttt{msg.sender} is \texttt{CrowdVault}. Before calling \texttt{onRevenue}, the vault approves the router to pull the fee:
+
+\begin{lstlisting}
+usdc.approve(revenueRouter, fee);
+IRevenueRouter(revenueRouter).onRevenue(fee);
+\end{lstlisting}
+
+The full revenue movement is:
+
+\begin{quote}
+\texttt{CrowdVault} approves the fee, \texttt{RevenueRouter} pulls the USDC, and \texttt{totalRevenueReceived} increases.
+\end{quote}
+
+\subsubsection{Collecting Revenue}
+
+The admin collects revenue with:
+
+\begin{lstlisting}
+function collect() external onlyAdmin {
+    uint256 toPay = totalRevenueReceived - totalCollected;
+    if (toPay == 0) revert NothingToClaim();
+    totalCollected += toPay;
+    if (!usdc.transfer(admin, toPay)) revert TransferFailed();
+    emit Collected(admin, toPay);
+}
+\end{lstlisting}
+
+This function:
+
+\begin{enumerate}
+  \item Calculates uncollected revenue.
+  \item Reverts if there is nothing to collect.
+  \item Updates \texttt{totalCollected}.
+  \item Transfers USDC to the admin.
+  \item Emits a \texttt{Collected} event.
+\end{enumerate}
+
+Example:
+
+\begin{quote}
+If the router received 100 USDC and the admin already collected 40 USDC, then \texttt{collect()} sends 60 USDC to the admin.
+\end{quote}
+
+\subsubsection{How CrowdVault Uses RevenueRouter}
+
+\texttt{CrowdVault} calls \texttt{RevenueRouter} only when release fees are enabled.
+
+During a milestone release, \texttt{CrowdVault} calculates:
+
+\begin{lstlisting}
+uint256 fee = (amt * releaseFeeBps) / 10_000;
+uint256 toTreasury = amt - fee;
+\end{lstlisting}
+
+The project treasury receives \texttt{toTreasury}. The fee is routed to \texttt{RevenueRouter}:
+
+\begin{lstlisting}
+_withdrawAndTransfer(address(this), fee);
+usdc.approve(revenueRouter, fee);
+IRevenueRouter(revenueRouter).onRevenue(fee);
+\end{lstlisting}
+
+So the project still receives most of the release, while the platform receives the configured fee.
+
+\subsubsection{Why the Router Stores the Token Address}
+
+The router does not accept arbitrary revenue tokens. It is designed for one token: USDC.
+
+That is why \texttt{onRevenue} only takes:
+
+\begin{lstlisting}
+uint256 amount
+\end{lstlisting}
+
+instead of:
+
+\begin{lstlisting}
+address token, uint256 amount
+\end{lstlisting}
+
+This is simpler and safer. The router cannot accidentally receive an unsupported token through \texttt{onRevenue}; it always pulls the configured USDC token.
+
+\subsubsection{Summary}
+
+\texttt{RevenueRouter.sol} is a platform revenue collector. It receives USDC release fees from \texttt{CrowdVault}, tracks total received revenue, tracks total collected revenue, and allows only the admin to collect the available USDC.
+
+\subsection{MockLender.sol}
+
+\subsubsection{Purpose}
+
+\texttt{MockLender.sol} is a simplified lending module used by \texttt{CrowdVault}. It receives USDC from the vault, tracks deposited principal, allows a fixed small amount of mock yield to be added, and lets only the vault withdraw principal or yield.
+
+Even though the contract is called \texttt{MockLender}, the token it holds can still be real Sepolia USDC. The word ``mock'' means the lending behavior is simplified. It is not a full external lending protocol like Aave or Compound.
+
+The high-level flow is:
+
+\begin{quote}
+Backers invest USDC into \texttt{CrowdVault}. The vault supplies that USDC to \texttt{MockLender}. A fixed amount of mock yield can be added. The vault harvests yield and later lets backers claim it through \texttt{CrowdVault.claimYield()}.
+\end{quote}
+
+\subsubsection{USDC Interface}
+
+The contract defines a small ERC-20 interface:
+
+\begin{lstlisting}
+interface IERC20Like {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(address who) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
+}
+\end{lstlisting}
+
+\texttt{MockLender} uses this interface to interact with USDC. It needs:
+
+\begin{itemize}
+  \item \texttt{transferFrom}: pull USDC into the lender.
+  \item \texttt{transfer}: send USDC back to the vault.
+  \item \texttt{balanceOf}: check real token liquidity before withdrawals.
+  \item \texttt{approve}: included in the interface, although this contract does not currently call it internally.
+\end{itemize}
+
+\subsubsection{State Variables}
+
+The simplified lender has these main variables:
+
+\begin{lstlisting}
+IERC20Like public immutable usdc;
+uint256 public constant YIELD_AMOUNT = 10_000; // 0.01 USDC
+address public admin;
+address public withdrawer;
+uint256 public totalSupplied;
+uint256 public accruedYield;
+\end{lstlisting}
+
+\texttt{usdc} stores the ERC-20 token used by the lender. It is immutable, so it is set once during deployment and cannot be changed later.
+
+\texttt{YIELD\_AMOUNT} is the fixed amount of mock yield added each time \texttt{addYield()} is called. Because USDC uses 6 decimals, \texttt{10\_000} represents:
+
+\begin{quote}
+0.01 USDC
+\end{quote}
+
+\texttt{admin} is the address that deployed the lender. The admin can set the withdrawer and add mock yield.
+
+\texttt{withdrawer} is the only address allowed to withdraw funds from the lender. In the system, this should be \texttt{CrowdVault}.
+
+\texttt{totalSupplied} tracks deposited principal. Principal means original deposited money, not profit.
+
+\texttt{accruedYield} tracks yield that has been added and can be harvested by the vault.
+
+\subsubsection{Roles}
+
+There are two roles:
+
+\begin{itemize}
+  \item \texttt{admin}: configures the lender and can add mock yield.
+  \item \texttt{withdrawer}: can withdraw principal and yield. This should be \texttt{CrowdVault}.
+\end{itemize}
+
+The admin restriction is:
+
+\begin{lstlisting}
+modifier onlyAdmin() {
+    require(msg.sender == admin, "not admin");
+    _;
+}
+\end{lstlisting}
+
+The withdrawer restriction is:
+
+\begin{lstlisting}
+modifier onlyWithdrawer() {
+    require(msg.sender == withdrawer, "not withdrawer");
+    _;
+}
+\end{lstlisting}
+
+This design prevents normal users, founders, or random callers from withdrawing directly from the lender. All withdrawals should go through \texttt{CrowdVault}, where the project rules are enforced.
+
+\subsubsection{Constructor}
+
+The constructor is:
+
+\begin{lstlisting}
+constructor(address usdc_) {
+    usdc = IERC20Like(usdc_);
+    admin = msg.sender;
+}
+\end{lstlisting}
+
+It stores the USDC token address and sets the deployer as admin.
+
+\subsubsection{setWithdrawer}
+
+\texttt{setWithdrawer} chooses the address allowed to withdraw:
+
+\begin{lstlisting}
+function setWithdrawer(address withdrawer_) external onlyAdmin {
+    require(withdrawer_ != address(0), "withdrawer=0");
+    withdrawer = withdrawer_;
+    emit WithdrawerSet(withdrawer_);
+}
+\end{lstlisting}
+
+After deployment, the expected setup is:
+
+\begin{quote}
+\texttt{lender.setWithdrawer(vaultAddress)}
+\end{quote}
+
+Without this step, \texttt{CrowdVault} cannot call \texttt{withdraw()} or \texttt{withdrawYield()}.
+
+\subsubsection{supply}
+
+\texttt{supply} receives principal deposits:
+
+\begin{lstlisting}
+function supply(uint256 amount) external {
+    require(amount > 0, "amount=0");
+    require(usdc.transferFrom(msg.sender, address(this), amount), "tf");
+    totalSupplied += amount;
+    emit Supplied(msg.sender, amount);
+}
+\end{lstlisting}
+
+In normal use, \texttt{msg.sender} is \texttt{CrowdVault}. The vault approves the lender, then the lender pulls USDC from the vault.
+
+The function increases:
+
+\begin{lstlisting}
+totalSupplied
+\end{lstlisting}
+
+because supplied funds are principal.
+
+\subsubsection{withdraw}
+
+\texttt{withdraw} lets the withdrawer pull funds out:
+
+\begin{lstlisting}
+function withdraw(uint256 amount, address to) external onlyWithdrawer {
+    require(to != address(0), "to=0");
+    require(amount <= totalSupplied + accruedYield, "bal");
+    if (amount <= totalSupplied) {
+        totalSupplied -= amount;
+    } else {
+        uint256 fromYield = amount - totalSupplied;
+        totalSupplied = 0;
+        accruedYield = accruedYield > fromYield ? accruedYield - fromYield : 0;
+    }
+    require(usdc.balanceOf(address(this)) >= amount, "liq");
+    require(usdc.transfer(to, amount), "t");
+    emit Withdrawn(to, amount);
+}
+\end{lstlisting}
+
+This is used by \texttt{CrowdVault} when it needs USDC back from the lender.
+
+Examples include:
+
+\begin{itemize}
+  \item releasing milestone funds to a project treasury,
+  \item refunding backers,
+  \item seeding the AMM,
+  \item paying claimable yield if the vault needs liquidity.
+\end{itemize}
+
+The function first reduces \texttt{totalSupplied}. If the requested amount is larger than the remaining principal, it reduces \texttt{accruedYield} as well.
+
+It also checks:
+
+\begin{lstlisting}
+usdc.balanceOf(address(this)) >= amount
+\end{lstlisting}
+
+This verifies that the lender actually holds enough USDC tokens, not just accounting values.
+
+\subsubsection{withdrawYield}
+
+\texttt{withdrawYield} lets the vault withdraw only yield:
+
+\begin{lstlisting}
+function withdrawYield(uint256 amount, address to) external onlyWithdrawer {
+    require(to != address(0), "to=0");
+    require(amount <= accruedYield, "yield");
+    accruedYield -= amount;
+    require(usdc.balanceOf(address(this)) >= amount, "liq");
+    require(usdc.transfer(to, amount), "t");
+    emit YieldWithdrawn(to, amount);
+}
+\end{lstlisting}
+
+\texttt{CrowdVault.harvestYield()} uses this function. It is stricter than \texttt{withdraw()} because it cannot touch principal. It only withdraws from \texttt{accruedYield}.
+
+\subsubsection{balance}
+
+The accounting balance is:
+
+\begin{lstlisting}
+function balance() external view returns (uint256) {
+    return totalSupplied + accruedYield;
+}
+\end{lstlisting}
+
+\texttt{CrowdVault} uses this to compare lender accounting against the principal that should still be locked. If the lender balance is greater than locked principal, the difference can be treated as yield.
+
+\subsubsection{addYield}
+
+\texttt{addYield} adds a fixed amount of mock yield:
+
+\begin{lstlisting}
+function addYield() external onlyAdmin {
+    require(usdc.transferFrom(msg.sender, address(this), YIELD_AMOUNT), "tf");
+    accruedYield += YIELD_AMOUNT;
+    emit YieldAdded(YIELD_AMOUNT);
+}
+\end{lstlisting}
+
+This function no longer takes an arbitrary amount. It always uses:
+
+\begin{lstlisting}
+YIELD_AMOUNT
+\end{lstlisting}
+
+which is \texttt{0.01} USDC.
+
+The admin must first approve the lender to pull \texttt{YIELD\_AMOUNT} USDC. Then \texttt{addYield()} pulls that USDC and increases \texttt{accruedYield}.
+
+The flow is:
+
+\begin{quote}
+Admin approves \texttt{0.01} USDC to \texttt{MockLender}. Admin calls \texttt{addYield()}. \texttt{MockLender} pulls the USDC and records it as yield.
+\end{quote}
+
+\subsubsection{How Backers Receive Yield}
+
+Backers do not call \texttt{MockLender} directly.
+
+The complete flow is:
+
+\begin{enumerate}
+  \item Backers invest USDC in \texttt{CrowdVault}.
+  \item \texttt{CrowdVault} supplies the USDC to \texttt{MockLender}.
+  \item Admin adds mock yield with \texttt{MockLender.addYield()}.
+  \item Someone calls \texttt{CrowdVault.harvestYield()}.
+  \item \texttt{CrowdVault} calls \texttt{MockLender.withdrawYield(...)}.
+  \item Backers call \texttt{CrowdVault.claimYield()}.
+\end{enumerate}
+
+So the user-facing yield functions are on \texttt{CrowdVault}, not on \texttt{MockLender}.
+
+\subsubsection{Summary}
+
+\texttt{MockLender.sol} is a simplified USDC lending module. It stores vault-supplied principal in \texttt{totalSupplied}, stores manually added yield in \texttt{accruedYield}, allows only \texttt{CrowdVault} to withdraw, and uses a fixed \texttt{YIELD\_AMOUNT} of 0.01 USDC for mock yield generation.
+
+\subsection{CommitmentAMM.sol}
+
+\subsubsection{Purpose}
+
+\texttt{CommitmentAMM.sol} is the trading contract for CommitmentTokens. It lets users buy or sell a project's CommitmentToken using USDC.
+
+AMM stands for Automated Market Maker. An AMM is a smart contract that lets users trade against a liquidity pool instead of trading directly with another person.
+
+In a normal order book market, one user needs to place a buy order and another user needs to place a sell order. In an AMM, the pool itself is always the counterparty.
+
+In this project:
+
+\begin{itemize}
+  \item Users buy CommitmentTokens by sending USDC to the AMM.
+  \item Users sell CommitmentTokens by sending CommitmentTokens to the AMM.
+  \item The AMM stores pool balances for each project.
+  \item The AMM price changes automatically based on pool balances.
+\end{itemize}
+
+\subsubsection{How This AMM Is Tailored for the Project}
+
+This AMM is not a general-purpose exchange like Uniswap. It is tailored to the crowdfunding system.
+
+Each crowdfunding project has its own CommitmentToken ID. Because of that, the AMM stores separate pools per project:
+
+\begin{lstlisting}
+mapping(uint256 => uint256) public poolUsdc;
+mapping(uint256 => uint256) public poolCommit;
+mapping(uint256 => bool) public seeded;
+\end{lstlisting}
+
+For example:
+
+\begin{itemize}
+  \item \texttt{poolUsdc[1]} stores the USDC liquidity for project \texttt{1}.
+  \item \texttt{poolCommit[1]} stores the CommitmentToken liquidity for project \texttt{1}.
+  \item \texttt{seeded[1]} tells us whether project \texttt{1}'s AMM pool has been created.
+\end{itemize}
+
+So there is one AMM contract, but many project-specific pools inside it.
+
+\subsubsection{Important Contract References}
+
+The AMM connects to three other contracts:
+
+\begin{lstlisting}
+IERC20Swap public immutable usdc;
+ICommitSwap public immutable commit;
+ICrowdVault public immutable vault;
+\end{lstlisting}
+
+\texttt{usdc} is the USDC token used for buying and selling.
+
+\texttt{commit} is the CommitmentToken contract. The AMM calls it when it needs to transfer ERC-1155 CommitmentTokens.
+
+\texttt{vault} is the CrowdVault contract. The vault is the only contract allowed to seed AMM pools.
+
+\subsubsection{Admin Variables}
+
+The AMM still has an admin:
+
+\begin{lstlisting}
+address public admin;
+address public pendingAdmin;
+\end{lstlisting}
+
+The admin can manage settings such as the AMM fee and admin transfer. The admin can no longer manually seed pools and can no longer remove liquidity.
+
+This is intentional. In the current design, AMM liquidity should come from the project flow, not from manual admin actions.
+
+\subsubsection{Trading Fee}
+
+The AMM fee is stored in basis points:
+
+\begin{lstlisting}
+uint256 public feeBps = 30;
+\end{lstlisting}
+
+\texttt{bps} means basis points. One basis point is \texttt{0.01\%}.
+
+So:
+
+\begin{itemize}
+  \item \texttt{30 bps} = \texttt{0.30\%}
+  \item \texttt{100 bps} = \texttt{1.00\%}
+  \item \texttt{1000 bps} = \texttt{10.00\%}
+\end{itemize}
+
+The fee can be changed by the admin:
+
+\begin{lstlisting}
+function setFee(uint256 feeBps_) external onlyAdmin {
+    if (feeBps_ > 1000) revert FeeTooHigh();
+    feeBps = feeBps_;
+    emit FeeSet(feeBps_);
+}
+\end{lstlisting}
+
+The maximum fee is \texttt{1000 bps}, meaning \texttt{10\%}.
+
+\subsubsection{Modifiers}
+
+The AMM uses modifiers to keep checks readable.
+
+\begin{lstlisting}
+modifier onlyVault() {
+    if (msg.sender != address(vault)) revert NotVault();
+    _;
+}
+\end{lstlisting}
+
+\texttt{onlyVault} means the function can only be called by \texttt{CrowdVault}.
+
+\begin{lstlisting}
+modifier validProject(uint256 projectId) {
+    if (projectId == 0 || projectId > vault.projectCount())
+        revert BadProject();
+    _;
+}
+\end{lstlisting}
+
+\texttt{validProject} checks that the project ID exists.
+
+\begin{lstlisting}
+modifier projectTradable(uint256 projectId) {
+    if (!vault.ammProjectReady(projectId)) revert ProjectNotTradable();
+    _;
+}
+\end{lstlisting}
+
+\texttt{projectTradable} checks that the project is allowed to trade.
+
+\begin{lstlisting}
+modifier notSeeded(uint256 projectId) {
+    if (seeded[projectId]) revert AlreadySeeded();
+    _;
+}
+\end{lstlisting}
+
+\texttt{notSeeded} prevents the same project pool from being seeded twice.
+
+\begin{lstlisting}
+modifier seededProject(uint256 projectId) {
+    if (!seeded[projectId]) revert NotSeeded();
+    _;
+}
+\end{lstlisting}
+
+\texttt{seededProject} makes sure users cannot swap before the pool exists.
+
+\begin{lstlisting}
+modifier nonEmptySeed(uint256 usdcIn, uint256 commitIn) {
+    if (usdcIn == 0 || commitIn == 0) revert EmptyPool();
+    _;
+}
+\end{lstlisting}
+
+\texttt{nonEmptySeed} makes sure the initial AMM pool does not start with zero USDC or zero CommitmentTokens.
+
+\begin{lstlisting}
+modifier nonZeroAmount(uint256 amount) {
+    if (amount == 0) revert ZeroAmount();
+    _;
+}
+\end{lstlisting}
+
+\texttt{nonZeroAmount} makes sure users cannot make a zero-sized swap.
+
+\subsubsection{Automatic Seeding From CrowdVault}
+
+The AMM pool is created through:
+
+\begin{lstlisting}
+function seedFromVault(
+    uint256 projectId,
+    uint256 usdcIn,
+    uint256 commitIn
+)
+    external
+    onlyVault
+    validProject(projectId)
+    projectTradable(projectId)
+    notSeeded(projectId)
+    nonEmptySeed(usdcIn, commitIn)
+{
+    poolUsdc[projectId] = usdcIn;
+    poolCommit[projectId] = commitIn;
+    seeded[projectId] = true;
+
+    emit Seeded(projectId, usdcIn, commitIn);
+}
+\end{lstlisting}
+
+This function is called by \texttt{CrowdVault}, not by users and not by the admin.
+
+The intended flow is:
+
+\begin{enumerate}
+  \item Backers fund a project.
+  \item The project reaches the right stage.
+  \item The founder claims the first milestone.
+  \item \texttt{CrowdVault} releases milestone funds.
+  \item \texttt{CrowdVault} seeds the AMM by calling \texttt{seedFromVault(...)}.
+\end{enumerate}
+
+The AMM no longer has manual admin seeding. The old manual \texttt{seed(...)} function was removed because it duplicated the real product flow and could confuse the system.
+
+\subsubsection{Why removeLiquidity Was Removed}
+
+The old \texttt{removeLiquidity(...)} function allowed the admin to pull liquidity out of the AMM.
+
+That was useful for emergency maintenance, but it also gave the admin too much control. If the admin could remove liquidity, users might lose the ability to sell into the AMM.
+
+The current design removes that function. Once \texttt{CrowdVault} seeds the pool, the liquidity stays in the AMM and users trade against it.
+
+\subsubsection{Buying CommitmentTokens}
+
+Users buy CommitmentTokens with:
+
+\begin{lstlisting}
+function swapUsdcForCommit(
+    uint256 projectId,
+    uint256 usdcIn,
+    uint256 minCommitOut
+)
+    external
+    nonZeroAmount(usdcIn)
+    seededProject(projectId)
+    projectTradable(projectId)
+    returns (uint256 out)
+\end{lstlisting}
+
+The flow is:
+
+\begin{quote}
+User sends USDC to AMM. AMM sends CommitmentTokens to user.
+\end{quote}
+
+The important transfer is:
+
+\begin{lstlisting}
+if (!usdc.transferFrom(msg.sender, address(this), usdcIn))
+    revert TransferFailed();
+\end{lstlisting}
+
+This line checks the user's real USDC balance indirectly. If the user claims they want to swap \texttt{1000} USDC but only has \texttt{5} USDC, \texttt{transferFrom} fails and the whole transaction reverts.
+
+It also checks allowance indirectly. The user must approve the AMM before the AMM can pull their USDC.
+
+So the vault does not check the user's balance. The USDC token contract enforces the real balance and allowance.
+
+\subsubsection{Selling CommitmentTokens}
+
+Users sell CommitmentTokens with:
+
+\begin{lstlisting}
+function swapCommitForUsdc(
+    uint256 projectId,
+    uint256 commitIn,
+    uint256 minUsdcOut
+)
+    external
+    nonZeroAmount(commitIn)
+    seededProject(projectId)
+    projectTradable(projectId)
+    returns (uint256 out)
+\end{lstlisting}
+
+The flow is:
+
+\begin{quote}
+User sends CommitmentTokens to AMM. AMM sends USDC to user.
+\end{quote}
+
+The important ERC-1155 transfer is:
+
+\begin{lstlisting}
+commit.safeTransferFrom(
+    msg.sender,
+    address(this),
+    projectId,
+    commitIn,
+    ""
+);
+\end{lstlisting}
+
+This calls the CommitmentToken contract. Even though the call goes through \texttt{commit}, the tokens move from:
+
+\begin{quote}
+\texttt{msg.sender} to \texttt{address(this)}
+\end{quote}
+
+That means:
+
+\begin{quote}
+user wallet to AMM contract
+\end{quote}
+
+The AMM does not manually check \texttt{balanceOf(user, projectId)} first. The ERC-1155 \texttt{safeTransferFrom} function already checks whether the user has enough tokens.
+
+It also checks whether the user approved the AMM with:
+
+\begin{lstlisting}
+setApprovalForAll(ammAddress, true)
+\end{lstlisting}
+
+If the user does not have enough CommitmentTokens, or did not approve the AMM, \texttt{safeTransferFrom} reverts and the swap fails.
+
+\subsubsection{Fake Amounts Cannot Trick the AMM}
+
+A user can type any amount into the frontend, but the contract only succeeds if the tokens can actually move.
+
+For USDC buys:
+
+\begin{lstlisting}
+usdc.transferFrom(msg.sender, address(this), usdcIn)
+\end{lstlisting}
+
+fails if the user does not have enough USDC or did not approve enough USDC.
+
+For CommitmentToken sells:
+
+\begin{lstlisting}
+commit.safeTransferFrom(msg.sender, address(this), projectId, commitIn, "")
+\end{lstlisting}
+
+fails if the user does not have enough CommitmentTokens or did not approve the AMM.
+
+So a real wallet address with a fake amount does not allow stealing. The transaction simply reverts.
+
+\subsubsection{The getAmountOut Formula}
+
+The AMM calculates swap output with:
+
+\begin{lstlisting}
+function getAmountOut(
+    uint256 amountIn,
+    uint256 reserveIn,
+    uint256 reserveOut
+) public view returns (uint256) {
+    if (reserveIn == 0 || reserveOut == 0) revert EmptyPool();
+    uint256 inWithFee = (amountIn * (10_000 - feeBps)) / 10_000;
+    return (inWithFee * reserveOut) / (reserveIn + inWithFee);
+}
+\end{lstlisting}
+
+This uses the constant-product AMM idea:
+
+\begin{quote}
+\texttt{x * y = k}
+\end{quote}
+
+Where:
+
+\begin{itemize}
+  \item \texttt{x} is one side of the pool,
+  \item \texttt{y} is the other side of the pool,
+  \item \texttt{k} is the constant the AMM tries to preserve.
+\end{itemize}
+
+For example, if the pool has:
+
+\begin{itemize}
+  \item \texttt{1000} USDC,
+  \item \texttt{1000} CommitmentTokens,
+\end{itemize}
+
+then:
+
+\begin{lstlisting}
+x * y = 1000 * 1000 = 1,000,000
+\end{lstlisting}
+
+If a user buys CommitmentTokens with \texttt{100} USDC, the AMM does not simply give exactly \texttt{100} CommitmentTokens. The user's own buy changes the pool balance and therefore changes the price.
+
+First, the AMM applies the fee:
+
+\begin{lstlisting}
+inWithFee = amountIn * (10_000 - feeBps) / 10_000
+\end{lstlisting}
+
+With a \texttt{30 bps} fee:
+
+\begin{lstlisting}
+inWithFee = 100 * 9970 / 10000 = 99.7
+\end{lstlisting}
+
+Then the output is:
+
+\begin{lstlisting}
+amountOut = inWithFee * reserveOut / (reserveIn + inWithFee)
+\end{lstlisting}
+
+Using the example:
+
+\begin{lstlisting}
+amountOut = 99.7 * 1000 / (1000 + 99.7)
+amountOut = 90.66 CommitmentTokens approximately
+\end{lstlisting}
+
+The user receives less than \texttt{100} CommitmentTokens because their trade moves the price. This is called slippage.
+
+\subsubsection{Slippage Protection}
+
+Both swap functions include a minimum output parameter:
+
+\begin{lstlisting}
+uint256 minCommitOut
+uint256 minUsdcOut
+\end{lstlisting}
+
+After the AMM calculates output, it checks:
+
+\begin{lstlisting}
+if (out < minCommitOut) revert Slippage();
+if (out < minUsdcOut) revert Slippage();
+\end{lstlisting}
+
+This protects users from receiving much less than expected. The frontend can calculate an expected output and set a minimum acceptable amount.
+
+\subsubsection{Does the AMM Guarantee Profit?}
+
+No. The AMM does not guarantee profit for early buyers.
+
+If a user buys early and many people buy after them, the AMM price may go up. If the first user later sells, they may receive more USDC than they originally paid.
+
+But this is not guaranteed.
+
+Profit depends on:
+
+\begin{itemize}
+  \item how much other users buy,
+  \item how much other users sell,
+  \item AMM fees,
+  \item pool liquidity,
+  \item slippage,
+  \item the timing of the user's exit.
+\end{itemize}
+
+The AMM only guarantees the formula. It does not guarantee that a trader will make money.
+
+\subsubsection{Summary}
+
+\texttt{CommitmentAMM.sol} is the secondary trading contract for project CommitmentTokens. It stores one USDC/CommitmentToken pool per project, allows only \texttt{CrowdVault} to seed pools automatically, lets users buy and sell against those pools, and calculates prices using a constant-product AMM formula. Manual admin seeding and admin liquidity removal were removed so the AMM follows the real project flow more clearly.
+
+\end{document}

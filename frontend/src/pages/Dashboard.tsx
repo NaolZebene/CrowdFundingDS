@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { ConnectPrompt } from "@/components/ConnectPrompt";
 import { useWallet } from "@/hooks/useWallet";
 import { useMarketsData } from "@/hooks/useMarketsData";
-import { AMM_ABI, ERC20_ABI, REVENUE_ROUTER_ABI, VAULT_ABI } from "@/config/abis";
+import { AMM_ABI, ERC20_ABI, MOCK_LENDER_ABI, REVENUE_ROUTER_ABI, VAULT_ABI } from "@/config/abis";
 import { CONTRACTS } from "@/config/contracts";
 import { useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { formatUnits, parseUnits } from "viem";
@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 
 const USDC_DECIMALS = 6;
+const FALLBACK_SEED_YIELD_AMOUNT = 10_000n; // 0.01 USDC
 
 type AdminSection = "overview" | "approvals" | "financials" | "revenue" | "vault" | "amm" | "permissions";
 
@@ -205,17 +206,9 @@ function AdminDashboardView() {
   const [submissionFeeInput, setSubmissionFeeInput] = useState("");
   const [releaseFeeInput, setReleaseFeeInput] = useState("");
   const [revenueRouterInput, setRevenueRouterInput] = useState("");
-  const [weightUsersInput, setWeightUsersInput] = useState("");
-  const [weightValuesInput, setWeightValuesInput] = useState("");
   const [lenderInput, setLenderInput] = useState("");
-  const [seedYieldInput, setSeedYieldInput] = useState("");
-  const [zkInput, setZkInput] = useState("");
   const [newVaultAdminInput, setNewVaultAdminInput] = useState("");
   const [ammFeeInput, setAmmFeeInput] = useState("");
-  const [seedProjectId, setSeedProjectId] = useState("");
-  const [seedUsdcInput, setSeedUsdcInput] = useState("");
-  const [seedCommitInput, setSeedCommitInput] = useState("");
-  const [removeLiquidityProjectId, setRemoveLiquidityProjectId] = useState("");
   const [newAmmAdminInput, setNewAmmAdminInput] = useState("");
   const [lastAction, setLastAction] = useState("");
 
@@ -225,32 +218,20 @@ function AdminDashboardView() {
   const { data: releaseFeeBps, refetch: refetchReleaseFee } = useReadContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "releaseFeeBps" });
   const { data: revenueRouter, refetch: refetchRevenueRouter } = useReadContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "revenueRouter" });
   const { data: lender, refetch: refetchLender } = useReadContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "lender" });
-  const configuredZkAddress = CONTRACTS.ZKVER;
   const connectedLender = String(lender ?? "");
   const configuredLenderMatches = String(lender ?? "").toLowerCase() === CONTRACTS.LENDER.toLowerCase();
   const canSeedYield = isAddressLike(connectedLender);
   const routerConfiguredInVault = String(revenueRouter ?? "").toLowerCase() === CONTRACTS.ROUTER.toLowerCase();
 
   const { data: routerAdmin, refetch: refetchRouterAdmin } = useReadContract({ address: CONTRACTS.ROUTER, abi: REVENUE_ROUTER_ABI, functionName: "admin" });
-  const { data: routerTreasury, refetch: refetchRouterTreasury } = useReadContract({ address: CONTRACTS.ROUTER, abi: REVENUE_ROUTER_ABI, functionName: "treasury" });
-  const { data: routerBackersBps, refetch: refetchRouterBackersBps } = useReadContract({ address: CONTRACTS.ROUTER, abi: REVENUE_ROUTER_ABI, functionName: "backersBps" });
-  const { data: routerTotalWeight, refetch: refetchRouterTotalWeight } = useReadContract({ address: CONTRACTS.ROUTER, abi: REVENUE_ROUTER_ABI, functionName: "totalWeight" });
-  const { data: routerBackersAccrued, refetch: refetchRouterBackersAccrued } = useReadContract({ address: CONTRACTS.ROUTER, abi: REVENUE_ROUTER_ABI, functionName: "totalBackersAccrued" });
+  const { data: routerRevenueReceived, refetch: refetchRouterRevenueReceived } = useReadContract({ address: CONTRACTS.ROUTER, abi: REVENUE_ROUTER_ABI, functionName: "totalRevenueReceived" });
+  const { data: routerTotalCollected, refetch: refetchRouterTotalCollected } = useReadContract({ address: CONTRACTS.ROUTER, abi: REVENUE_ROUTER_ABI, functionName: "totalCollected" });
   const { data: routerUsdcBalance, refetch: refetchRouterUsdcBalance } = useReadContract({ address: CONTRACTS.USDC, abi: ERC20_ABI, functionName: "balanceOf", args: [CONTRACTS.ROUTER] });
-
-  const checkedZkAddress = isAddressLike(zkInput) ? zkInput : undefined;
-  const { data: isZkApproved, refetch: refetchZkStatus } = useReadContract({
-    address: CONTRACTS.VAULT,
-    abi: VAULT_ABI,
-    functionName: "approvedZK",
-    args: checkedZkAddress ? [checkedZkAddress] : undefined,
-    query: { enabled: !!checkedZkAddress },
-  });
-  const { data: isConfiguredZkApproved, refetch: refetchConfiguredZkStatus } = useReadContract({
-    address: CONTRACTS.VAULT,
-    abi: VAULT_ABI,
-    functionName: "approvedZK",
-    args: [configuredZkAddress],
+  const { data: lenderYieldAmount } = useReadContract({
+    address: isAddressLike(connectedLender) ? connectedLender as `0x${string}` : undefined,
+    abi: MOCK_LENDER_ABI,
+    functionName: "YIELD_AMOUNT",
+    query: { enabled: isAddressLike(connectedLender) },
   });
 
   const { data: ammAdmin, refetch: refetchAmmAdmin } = useReadContract({ address: CONTRACTS.AMM, abi: AMM_ABI, functionName: "admin" });
@@ -285,20 +266,15 @@ function AdminDashboardView() {
     void refetchAmmPending();
     void refetchAmmFee();
     void refetchRouterAdmin();
-    void refetchRouterTreasury();
-    void refetchRouterBackersBps();
-    void refetchRouterTotalWeight();
-    void refetchRouterBackersAccrued();
+    void refetchRouterRevenueReceived();
+    void refetchRouterTotalCollected();
     void refetchRouterUsdcBalance();
     void refetchVaultUsdc();
     void refetchLenderUsdc();
     void refetchAmmUsdc();
     void refetchTreasuryUsdc();
-    if (checkedZkAddress) void refetchZkStatus();
-    void refetchConfiguredZkStatus();
   }, [
     isTxSuccess,
-    checkedZkAddress,
     refetchAmmAdmin,
     refetchAmmFee,
     refetchAmmPending,
@@ -306,10 +282,8 @@ function AdminDashboardView() {
     refetchReleaseFee,
     refetchRevenueRouter,
     refetchRouterAdmin,
-    refetchRouterBackersAccrued,
-    refetchRouterBackersBps,
-    refetchRouterTotalWeight,
-    refetchRouterTreasury,
+    refetchRouterRevenueReceived,
+    refetchRouterTotalCollected,
     refetchRouterUsdcBalance,
     refetchVaultUsdc,
     refetchLenderUsdc,
@@ -318,8 +292,6 @@ function AdminDashboardView() {
     refetchSubmissionFee,
     refetchVaultAdmin,
     refetchVaultPending,
-    refetchConfiguredZkStatus,
-    refetchZkStatus,
   ]);
 
   function runAction(label: string, run: () => void) {
@@ -332,16 +304,12 @@ function AdminDashboardView() {
     "CrowdVault.setReleaseFeeBps(uint256)",
     "CrowdVault.setRevenueRouter(address)",
     "CrowdVault.setLender(address)",
-    "CrowdVault.addZK(address)",
-    "CrowdVault.removeZK(address)",
     "CrowdVault.harvestYield()",
     "CrowdVault.transferAdmin(address)",
     "CrowdVault.approveProject(uint256)",
-    "RevenueRouter.setWeights(address[],uint256[])",
+    "RevenueRouter.collect()",
     "CommitmentAMM.setFee(uint256)",
     "CommitmentAMM.transferAdmin(address)",
-    "CommitmentAMM.seed(uint256,uint256,uint256)",
-    "CommitmentAMM.removeLiquidity(uint256)",
   ];
 
   const toN = (v: unknown) => v ? Number(formatUnits(v as bigint, USDC_DECIMALS)) : 0;
@@ -350,6 +318,8 @@ function AdminDashboardView() {
   const ammUSDC        = toN(ammUsdcBalance);
   const treasuryUSDC   = toN(treasuryUsdcBalance);
   const routerUSDC     = toN(routerUsdcBalance);
+  const routerCollectable = (routerUsdcBalance as bigint | undefined) ?? 0n;
+  const seedYieldAmount = (lenderYieldAmount as bigint | undefined) ?? FALLBACK_SEED_YIELD_AMOUNT;
   const yieldIndexFmt  = vaultYieldIndex ? Number(formatUnits(vaultYieldIndex as bigint, 18)).toFixed(6) : "1.000000";
   const totalProtocolUSDC = vaultUSDC + lenderUSDC + ammUSDC + treasuryUSDC + routerUSDC;
   const totalRaisedAll = projects.reduce((s, p) => s + p.totalRaised, 0);
@@ -693,8 +663,8 @@ function AdminDashboardView() {
                     <p className="font-mono text-base font-bold mt-1">{feeBps} <span className="text-muted-foreground text-[11px]">bps ({(feeBps / 100).toFixed(2)}%)</span></p>
                   </div>
                   <div className="border border-border rounded-xl p-3">
-                    <p className="text-muted-foreground text-[10px] uppercase tracking-wide">Backer Rev. Split</p>
-                    <p className="font-mono text-base font-bold mt-1">{(Number(routerBackersBps ?? 0) / 100).toFixed(2)}<span className="text-muted-foreground text-[11px]">%</span></p>
+                    <p className="text-muted-foreground text-[10px] uppercase tracking-wide">Router Collected</p>
+                    <p className="font-mono text-base font-bold mt-1">{fmtUSD(routerTotalCollected ? Number(formatUnits(routerTotalCollected as bigint, USDC_DECIMALS)) : 0)}</p>
                   </div>
                   <div className="border border-border rounded-xl p-3">
                     <p className="text-muted-foreground text-[10px] uppercase tracking-wide">AMM Fee</p>
@@ -714,28 +684,20 @@ function AdminDashboardView() {
                 <Separator />
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
                   <div className="border border-border rounded-md p-3">
-                    <p className="text-muted-foreground mb-1">Backer Revenue Accrued</p>
-                    <p className="font-mono text-base">{fmtUSD(routerBackersAccrued ? Number(formatUnits(routerBackersAccrued as bigint, USDC_DECIMALS)) : 0)}</p>
+                    <p className="text-muted-foreground mb-1">Revenue Received</p>
+                    <p className="font-mono text-base">{fmtUSD(routerRevenueReceived ? Number(formatUnits(routerRevenueReceived as bigint, USDC_DECIMALS)) : 0)}</p>
                   </div>
                   <div className="border border-border rounded-md p-3">
-                    <p className="text-muted-foreground mb-1">Unclaimed Router USDC</p>
+                    <p className="text-muted-foreground mb-1">Available to Collect</p>
                     <p className="font-mono text-base">{fmtUSD(routerUsdcBalance ? Number(formatUnits(routerUsdcBalance as bigint, USDC_DECIMALS)) : 0)}</p>
                   </div>
                   <div className="border border-border rounded-md p-3">
-                    <p className="text-muted-foreground mb-1">Backer Split</p>
-                    <p className="font-mono text-base">{Number(routerBackersBps ?? 0) / 100}%</p>
-                  </div>
-                  <div className="border border-border rounded-md p-3">
-                    <p className="text-muted-foreground mb-1">Total Weight</p>
-                    <p className="font-mono break-all">{String(routerTotalWeight ?? 0)}</p>
+                    <p className="text-muted-foreground mb-1">Total Collected</p>
+                    <p className="font-mono text-base">{fmtUSD(routerTotalCollected ? Number(formatUnits(routerTotalCollected as bigint, USDC_DECIMALS)) : 0)}</p>
                   </div>
                   <div className="border border-border rounded-md p-3">
                     <p className="text-muted-foreground mb-1">Router Admin</p>
                     <p className="font-mono break-all">{String(routerAdmin ?? "-")}</p>
-                  </div>
-                  <div className="border border-border rounded-md p-3">
-                    <p className="text-muted-foreground mb-1">Router Treasury</p>
-                    <p className="font-mono break-all">{String(routerTreasury ?? "-")}</p>
                   </div>
                 </div>
                 <div className="rounded-md border border-border p-3 text-xs">
@@ -750,42 +712,7 @@ function AdminDashboardView() {
                   <Button size="sm" className="h-9 text-xs" disabled={isBusy || !isAddressLike(revenueRouterInput)} onClick={() => runAction("Set Revenue Router", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "setRevenueRouter", args: [revenueRouterInput as `0x${string}`] }))}>Set Revenue Router</Button>
                   <Button size="sm" variant="outline" className="h-9 text-xs" disabled={isBusy} onClick={() => setRevenueRouterInput(CONTRACTS.ROUTER)}>Use Configured Router</Button>
                   <Button size="sm" className="h-9 text-xs" disabled={isBusy || routerConfiguredInVault} onClick={() => runAction("Connect Configured Router", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "setRevenueRouter", args: [CONTRACTS.ROUTER] }))}>Connect Configured Router</Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-card border-border">
-              <CardContent className="p-5 space-y-3">
-                <p className="text-sm font-semibold">Backer Revenue Weights</p>
-                <Separator />
-                <p className="text-xs text-muted-foreground">Set comma-separated wallet addresses and matching integer weights. These weights decide how the router distributes claimable backer revenue.</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <Input value={weightUsersInput} onChange={(e) => setWeightUsersInput(e.target.value)} placeholder="0xabc..., 0xdef..." />
-                  <Input value={weightValuesInput} onChange={(e) => setWeightValuesInput(e.target.value)} placeholder="100, 50" />
-                  <Button
-                    size="sm"
-                    className="h-9 text-xs md:col-span-2"
-                    disabled={isBusy}
-                    onClick={() => {
-                      const users = weightUsersInput.split(",").map((v) => v.trim()).filter(Boolean);
-                      const weights = weightValuesInput.split(",").map((v) => v.trim()).filter(Boolean);
-                      if (users.length === 0 || users.length !== weights.length || !users.every(isAddressLike)) return;
-                      let parsedWeights: bigint[];
-                      try {
-                        parsedWeights = weights.map((w) => BigInt(w));
-                      } catch {
-                        return;
-                      }
-                      runAction("Set Revenue Weights", () => writeContract({
-                        address: CONTRACTS.ROUTER,
-                        abi: REVENUE_ROUTER_ABI,
-                        functionName: "setWeights",
-                        args: [users as `0x${string}`[], parsedWeights],
-                      }));
-                    }}
-                  >
-                    Set Backer Weights
-                  </Button>
+                  <Button size="sm" className="h-9 text-xs md:col-span-2" disabled={isBusy || routerCollectable === 0n} onClick={() => runAction("Collect Router Revenue", () => writeContract({ address: CONTRACTS.ROUTER, abi: REVENUE_ROUTER_ABI, functionName: "collect" }))}>Collect Revenue</Button>
                 </div>
               </CardContent>
             </Card>
@@ -864,28 +791,35 @@ function AdminDashboardView() {
                   <Button size="sm" className="h-9 text-xs" disabled={isBusy || !isAddressLike(lenderInput)} onClick={() => runAction("Set Lender", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "setLender", args: [lenderInput as `0x${string}`] }))}>Set Lender</Button>
                   <Button size="sm" variant="outline" className="h-9 text-xs" disabled={isBusy} onClick={() => setLenderInput(CONTRACTS.LENDER)}>Use Configured Lender</Button>
                   <Button size="sm" className="h-9 text-xs" disabled={isBusy || configuredLenderMatches} onClick={() => runAction("Connect Configured Lender", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "setLender", args: [CONTRACTS.LENDER] }))}>Connect Configured Lender</Button>
-                  <Input value={seedYieldInput} onChange={(e) => setSeedYieldInput(e.target.value)} placeholder="Seed test yield in USDC" />
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-9 text-xs"
+                    className="h-9 text-xs md:col-span-2"
                     disabled={isBusy || !canSeedYield}
                     onClick={() => {
-                      let amount: bigint;
-                      try {
-                        amount = parseUnits(seedYieldInput || "0", USDC_DECIMALS);
-                      } catch {
-                        return;
-                      }
+                      const amount = seedYieldAmount;
                       if (amount <= 0n || !isAddressLike(connectedLender)) return;
-                      runAction("Seed Test Yield", () => writeContract({
+                      runAction("Approve Yield Seed", () => writeContract({
                         address: CONTRACTS.USDC,
                         abi: ERC20_ABI,
-                        functionName: "transfer",
-                        args: [connectedLender, amount],
+                        functionName: "approve",
+                        args: [connectedLender as `0x${string}`, amount],
                       }));
                     }}
-                  >Transfer Yield to Lender</Button>
+                  >Approve 0.01 USDC Yield Seed</Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-9 text-xs md:col-span-2"
+                    disabled={isBusy || !canSeedYield}
+                    onClick={() => {
+                      runAction("Add Lender Yield", () => writeContract({
+                        address: connectedLender as `0x${string}`,
+                        abi: MOCK_LENDER_ABI,
+                        functionName: "addYield",
+                      }));
+                    }}
+                  >Add 0.01 USDC Yield</Button>
                   <Button size="sm" className="h-9 text-xs md:col-span-2" disabled={isBusy} onClick={() => runAction("Harvest Lender Yield", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "harvestYield" }))}>Harvest Lender Yield</Button>
                 </div>
               </CardContent>
@@ -893,21 +827,9 @@ function AdminDashboardView() {
 
             <Card className="bg-card border-border">
               <CardContent className="p-5 space-y-3">
-                <p className="text-sm font-semibold">ZK Verifiers and Admin Transfer</p>
+                <p className="text-sm font-semibold">Vault Admin Transfer</p>
                 <Separator />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs items-center">
-                  <Input value={zkInput} onChange={(e) => setZkInput(e.target.value)} placeholder="ZK verifier address" />
-                  <div className="text-muted-foreground">Approved: <span className="font-mono text-foreground">{checkedZkAddress ? String(Boolean(isZkApproved)) : "-"}</span></div>
-                  <div className="text-muted-foreground md:col-span-2">
-                    Configured verifier: <span className="font-mono text-foreground break-all">{CONTRACTS.ZKVER}</span>
-                    <span className={`ml-2 ${isConfiguredZkApproved ? "text-green-400" : "text-yellow-400"}`}>
-                      {isConfiguredZkApproved ? "approved" : "not approved"}
-                    </span>
-                  </div>
-                  <Button size="sm" className="h-9 text-xs" disabled={isBusy || !isAddressLike(zkInput)} onClick={() => runAction("Add ZK", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "addZK", args: [zkInput as `0x${string}`] }))}>Add ZK</Button>
-                  <Button size="sm" variant="outline" className="h-9 text-xs" disabled={isBusy || !isAddressLike(zkInput)} onClick={() => runAction("Remove ZK", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "removeZK", args: [zkInput as `0x${string}`] }))}>Remove ZK</Button>
-                  <Button size="sm" variant="outline" className="h-9 text-xs" disabled={isBusy} onClick={() => setZkInput(CONTRACTS.ZKVER)}>Use Configured ZK</Button>
-                  <Button size="sm" className="h-9 text-xs" disabled={isBusy || Boolean(isConfiguredZkApproved)} onClick={() => runAction("Approve Configured ZK", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "addZK", args: [CONTRACTS.ZKVER] }))}>Approve Configured ZK</Button>
                   <Input value={newVaultAdminInput} onChange={(e) => setNewVaultAdminInput(e.target.value)} placeholder="New Vault admin address" />
                   <Button size="sm" className="h-9 text-xs" disabled={isBusy || !isAddressLike(newVaultAdminInput)} onClick={() => runAction("Transfer Vault Admin", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "transferAdmin", args: [newVaultAdminInput as `0x${string}`] }))}>Transfer Vault Admin</Button>
                 </div>
@@ -938,31 +860,6 @@ function AdminDashboardView() {
 
                   <Input value={newAmmAdminInput} onChange={(e) => setNewAmmAdminInput(e.target.value)} placeholder="New AMM admin address" />
                   <Button size="sm" className="h-9 text-xs" disabled={isBusy || !isAddressLike(newAmmAdminInput)} onClick={() => runAction("Transfer AMM Admin", () => writeContract({ address: CONTRACTS.AMM, abi: AMM_ABI, functionName: "transferAdmin", args: [newAmmAdminInput as `0x${string}`] }))}>Transfer AMM Admin</Button>
-
-                  <Input value={seedProjectId} onChange={(e) => setSeedProjectId(e.target.value)} placeholder="Seed project id" />
-                  <Input value={seedUsdcInput} onChange={(e) => setSeedUsdcInput(e.target.value)} placeholder="Seed USDC amount" />
-                  <Input value={seedCommitInput} onChange={(e) => setSeedCommitInput(e.target.value)} placeholder="Seed COMMIT amount" />
-                  <Button size="sm" className="h-9 text-xs" disabled={isBusy} onClick={() => {
-                    const pid = Number(seedProjectId);
-                    if (!Number.isFinite(pid) || pid <= 0) return;
-                    let usdcIn: bigint;
-                    let commitIn: bigint;
-                    try {
-                      usdcIn = parseUnits(seedUsdcInput || "0", USDC_DECIMALS);
-                      commitIn = parseUnits(seedCommitInput || "0", USDC_DECIMALS);
-                    } catch {
-                      return;
-                    }
-                    if (usdcIn <= 0n || commitIn <= 0n) return;
-                    runAction("Seed AMM Pool", () => writeContract({ address: CONTRACTS.AMM, abi: AMM_ABI, functionName: "seed", args: [BigInt(Math.floor(pid)), usdcIn, commitIn] }));
-                  }}>Seed Pool</Button>
-
-                  <Input value={removeLiquidityProjectId} onChange={(e) => setRemoveLiquidityProjectId(e.target.value)} placeholder="Project id to remove liquidity" />
-                  <Button size="sm" variant="outline" className="h-9 text-xs" disabled={isBusy} onClick={() => {
-                    const pid = Number(removeLiquidityProjectId);
-                    if (!Number.isFinite(pid) || pid <= 0) return;
-                    runAction("Remove AMM Liquidity", () => writeContract({ address: CONTRACTS.AMM, abi: AMM_ABI, functionName: "removeLiquidity", args: [BigInt(Math.floor(pid))] }));
-                  }}>Remove Liquidity</Button>
                 </div>
               </CardContent>
             </Card>
