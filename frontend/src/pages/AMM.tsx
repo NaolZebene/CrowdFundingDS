@@ -52,7 +52,6 @@ export default function AMM() {
 
   const {
     pools,
-    projectCount,
     pool,
     feeBps,
     usdcBal,
@@ -160,7 +159,7 @@ export default function AMM() {
         </div>
 
         <StatsRow stats={[
-          { label: "Projects", value: projectCount },
+          { label: "Projects", value: marketList.length },
           { label: "Available", value: marketList.length },
           { label: "Tradable", value: marketList.length },
           { label: "Indexed", value: indexedMarketCount },

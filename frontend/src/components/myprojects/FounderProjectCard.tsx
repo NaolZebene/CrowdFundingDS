@@ -36,7 +36,7 @@ export function FounderProjectCard({
   onClearVeto,
 }: FounderProjectCardProps) {
   const fundedPct =
-    project.goal > 0 ? Math.min(100, (project.raised / project.goal) * 100) : 0;
+    project.goal > 0 ? (project.raised / project.goal) * 100 : 0;
   const submittedMilestones = Math.max(0, project.milestonesCompleted);
 
   const now = Math.floor(Date.now() / 1000);

@@ -17,12 +17,12 @@ export function fmtPct(value: number) {
 }
 
 export function pct(raised: number, goal: number) {
-  return goal > 0 ? Math.min(100, (raised / goal) * 100) : 0;
+  return goal > 0 ? (raised / goal) * 100 : 0;
 }
 
 export function progressStyle(value: number) {
   return {
-    width: `${value}%`,
+    width: `${Math.min(100, Math.max(0, value))}%`,
     minWidth: value > 0 ? "2px" : undefined,
   };
 }

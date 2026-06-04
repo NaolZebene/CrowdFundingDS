@@ -15,7 +15,7 @@ export function fmtPct(value: number) {
 
 export function progressStyle(value: number) {
   return {
-    width: `${value}%`,
+    width: `${Math.min(100, Math.max(0, value))}%`,
     minWidth: value > 0 ? "2px" : undefined,
   };
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { gql, useQuery } from "@apollo/client";
 import {
@@ -8,9 +8,10 @@ import {
   useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
-import { parseUnits, formatUnits, maxUint256 } from "viem";
+import { decodeEventLog, parseUnits, formatUnits, maxUint256 } from "viem";
 import { CONTRACTS } from "@/config/contracts";
 import { AMM_ABI, ERC20_ABI, ERC1155_ABI, VAULT_ABI } from "@/config/abis";
+import { recordLiveActivity } from "@/lib/liveActivity";
 
 /* ─── constants ─── */
 const USDC_DECIMALS = 6;
@@ -72,6 +73,8 @@ export interface AmmPool {
   totalRaised: number;
   fundingGoal: number;
   fundingDeadline: bigint;
+  approved: boolean;
+  projectDead: boolean;
   fundingClosed: boolean;
   goalMet: boolean;
   indexed: boolean;
@@ -103,6 +106,7 @@ export function useAmmData(
 ) {
   const { address, isConnected } = useAccount();
   const [lastAction, setLastAction] = useState<"approve-usdc" | "approve-commit" | "swap" | null>(null);
+  const recordedSwapHash = useRef<string>();
   const {
     data: indexedPoolsData,
     error: indexedPoolsError,
@@ -205,6 +209,8 @@ export function useAmmData(
       let totalRaised = 0;
       let fundingGoal = 0;
       let fundingDeadline = 0n;
+      let approved = false;
+      let projectDead = false;
       let name = `Project #${i + 1}`;
       let description = "";
 
@@ -227,6 +233,8 @@ export function useAmmData(
         totalRaised = toNum(project[3]);
         fundingGoal = toNum(project[9]);
         fundingDeadline = project[10];
+        approved = project[11];
+        projectDead = project[21];
         name = project[12] || name;
         description = project[13] || "";
       }
@@ -241,8 +249,13 @@ export function useAmmData(
       const spotPrice = marketCommit > 0 ? marketUsdc / marketCommit : 0;
       const seeded = (isSeeded ?? false) || !!indexed;
       const hasLiquidity = marketUsdc > 0 && marketCommit > 0;
-      const tradable = seeded && hasLiquidity && fundingClosed && goalMet;
-      const blockReason = !seeded
+      const tradable =
+        approved && !projectDead && seeded && hasLiquidity && fundingClosed && goalMet;
+      const blockReason = !approved
+        ? "Project not approved"
+        : projectDead
+        ? "Project is inactive"
+        : !seeded
         ? "Needs AMM liquidity"
         : !hasLiquidity
         ? "Pool has no reserves"
@@ -264,6 +277,8 @@ export function useAmmData(
         totalRaised,
         fundingGoal,
         fundingDeadline,
+        approved,
+        projectDead,
         fundingClosed,
         goalMet,
         indexed: !!indexed,
@@ -279,7 +294,7 @@ export function useAmmData(
   }, [poolData, projectData, count, indexedPoolById]);
 
   const pools = useMemo(
-    () => allPools.filter((p) => p.goalMet && p.fundingClosed), // Show funded & closed projects (including pending seed)
+    () => allPools.filter((p) => p.tradable),
     [allPools],
   );
   const poolCandidates = useMemo(
@@ -341,11 +356,49 @@ export function useAmmData(
     error: writeError,
   } = useWriteContract();
 
-  const { isLoading: isTxPending, isSuccess: isTxSuccess } =
+  const { data: txReceipt, isLoading: isTxPending, isSuccess: isTxSuccess } =
     useWaitForTransactionReceipt({ hash: writeTxHash });
 
   useEffect(() => {
     if (!isTxSuccess) return;
+    if (
+      lastAction === "swap" &&
+      txReceipt &&
+      recordedSwapHash.current !== txReceipt.transactionHash
+    ) {
+      for (const log of txReceipt.logs) {
+        if (log.address.toLowerCase() !== CONTRACTS.AMM.toLowerCase()) continue;
+        try {
+          const decoded = decodeEventLog({ abi: AMM_ABI, data: log.data, topics: log.topics });
+          if (decoded.eventName !== "Swap") continue;
+          const args = decoded.args as {
+            projectId: bigint;
+            user: `0x${string}`;
+            tokenIn: `0x${string}`;
+            amountIn: bigint;
+            amountOut: bigint;
+          };
+          const isBuy = args.tokenIn.toLowerCase() !== CONTRACTS.COMMIT.toLowerCase();
+          const amountUsdc = toNum(isBuy ? args.amountIn : args.amountOut);
+          const amountCommit = toNum(isBuy ? args.amountOut : args.amountIn);
+          recordLiveActivity({
+            id: `${txReceipt.transactionHash}-${log.logIndex}-${isBuy ? "buy" : "sell"}`,
+            type: isBuy ? "buy" : "sell",
+            projectId: Number(args.projectId),
+            user: args.user,
+            amountUsdc,
+            amountCommit,
+            price: amountCommit > 0 ? amountUsdc / amountCommit : 0,
+            timestamp: Date.now(),
+            txHash: txReceipt.transactionHash,
+          });
+          recordedSwapHash.current = txReceipt.transactionHash;
+          break;
+        } catch {
+          // Ignore unrelated AMM logs in the receipt.
+        }
+      }
+    }
     if (lastAction === "approve-usdc") void refetchUsdcAllowance();
     if (lastAction === "approve-commit") void refetchCommitApproval();
     void refetchPoolData();
@@ -358,6 +411,7 @@ export function useAmmData(
   }, [
     isTxSuccess,
     lastAction,
+    txReceipt,
     refetchCommitApproval,
     refetchIndexedPools,
     refetchPoolData,
