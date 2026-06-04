@@ -247,13 +247,29 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
               <label className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium block mb-1.5">
                 Project Icon URL
               </label>
-              <input
-                type="text"
-                value={iconUrl}
-                onChange={(e) => setIconUrl(e.target.value)}
-                placeholder="ipfs://... or https://... (logo/icon)"
-                className="w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary/50 placeholder:text-muted-foreground/50"
-              />
+              <div className="flex gap-3 items-start">
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    value={iconUrl}
+                    onChange={(e) => setIconUrl(e.target.value)}
+                    placeholder="ipfs://... or https://... (logo/icon)"
+                    className="w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary/50 placeholder:text-muted-foreground/50"
+                  />
+                </div>
+                {iconUrl && (
+                  <div className="shrink-0">
+                    <img
+                      src={iconUrl}
+                      alt="Icon preview"
+                      className="w-10 h-10 rounded-md border border-border object-cover bg-secondary"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = "none";
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
             <div>
               <label className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium block mb-1.5">

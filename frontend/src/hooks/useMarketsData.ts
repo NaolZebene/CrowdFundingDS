@@ -77,41 +77,50 @@ export function useMarketsData() {
     return projectsRaw
       .map((res, i) => {
         if (res.status !== "success") return null;
-        const r = res.result as readonly [
-          string, string, bigint, bigint, bigint,
-          bigint, bigint, boolean, string, bigint, bigint, boolean,
-          string, string, string, string, bigint,
-          bigint, bigint, boolean, bigint, boolean, boolean,
+        type ProjectTuple = readonly [
+          /*0  founder*/            string,  /*1  treasury*/           string,
+          /*2  milestoneCount*/     bigint,  /*3  totalRaised*/        bigint,
+          /*4  totalReleased*/      bigint,  /*5  currentMilestone*/   bigint,
+          /*6  releaseRequestedAt*/ bigint,  /*7  releaseVetoed*/      boolean,
+          /*8  metadataUri*/        string,  /*9  fundingGoal*/        bigint,
+          /*10 fundingDeadline*/    bigint,  /*11 approved*/           boolean,
+          /*12 name*/               string,  /*13 description*/        string,
+          /*14 additionalFilesUrl*/ string,  /*15 iconUrl*/            string,
+          /*16 totalAmmSeeded*/     bigint,  /*17 milestoneWindow*/    bigint,
+          /*18 milestoneDeadline*/  bigint,  /*19 timeoutActive*/      boolean,
+          /*20 timeoutOpenedAt*/    bigint,  /*21 projectDead*/        boolean,
+          /*22 releaseApproved*/    boolean,
         ];
+        const r = res.result as ProjectTuple;
         const totalRaised = toUSDC(r[3]);
         const fundingGoal = toUSDC(r[9]);
         const expired = isExpired(r[10]);
         const goalMet = fundingGoal > 0 && totalRaised >= fundingGoal;
         return {
-          id:               i + 1,
-          name:             r[12] || `Project #${i + 1}`,
-          description:      r[13] || "No description provided.",
+          id: i + 1,
+          name: r[12] || `Project #${i + 1}`,
+          description: r[13] || "No description provided.",
           additionalFilesUrl: r[14] || "",
-          iconUrl:          r[15] || "",
+          iconUrl: r[15] || "",
           offchainMetadataUri: r[8] || "",
-          founder:          r[0],
-          milestoneCount:   Number(r[2]),
+          founder: r[0],
+          milestoneCount: Number(r[2]),
           totalRaised,
-          totalReleased:    toUSDC(r[4]),
+          totalReleased: toUSDC(r[4]),
           currentMilestone: Number(r[5]),
-          metadataUri:      r[8],
+          metadataUri: r[8],
           fundingGoal,
-          fundingDeadline:  r[10],
-          approved:         r[11],
-          daysLeft:         daysLeft(r[10]),
-          isExpired:        expired,
+          fundingDeadline: r[10],
+          approved: r[11],
+          daysLeft: daysLeft(r[10]),
+          isExpired: expired,
           goalMet,
-          fundingClosed:    expired, // Only close when deadline passes, not when goal met
-          milestoneWindow:  Number(r[17]),
+          fundingClosed: expired, // Only close when deadline passes, not when goal met
+          milestoneWindow: Number(r[17]),
           milestoneDeadline: r[18],
-          timeoutActive:    r[19],
-          timeoutOpenedAt:  Number(r[20]),
-          projectDead:      r[21],
+          timeoutActive: r[19],
+          timeoutOpenedAt: Number(r[20]),
+          projectDead: r[21],
         } satisfies MarketProject;
       })
       .filter(Boolean) as MarketProject[];

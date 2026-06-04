@@ -41,9 +41,13 @@ export const ERC1155_ABI = [
 
 export const REVENUE_ROUTER_ABI = [
   { name: "admin", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { name: "vault", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { name: "totalRevenueReceived", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { name: "totalCollected", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { name: "setVault", type: "function", stateMutability: "nonpayable", inputs: [{ name: "vault_", type: "address" }], outputs: [] },
   { name: "collect", type: "function", stateMutability: "nonpayable", inputs: [], outputs: [] },
+  { name: "VaultAlreadySet", type: "error", inputs: [] },
+  { name: "NotVault", type: "error", inputs: [] },
   {
     name: "RevenueReceived",
     type: "event",
@@ -63,6 +67,8 @@ export const REVENUE_ROUTER_ABI = [
 
 export const MOCK_LENDER_ABI = [
   { name: "addYield", type: "function", stateMutability: "nonpayable", inputs: [], outputs: [] },
+  { name: "supply", type: "function", stateMutability: "nonpayable", inputs: [{ name: "amount", type: "uint256" }], outputs: [] },
+  { name: "balance", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { name: "YIELD_AMOUNT", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
 ] as const;
 
@@ -78,7 +84,6 @@ export const VAULT_ABI = [
   { name: "BadDeadline", type: "error", inputs: [] },
   { name: "ZeroAmount", type: "error", inputs: [] },
   { name: "TransferFailed", type: "error", inputs: [] },
-  { name: "NotVault", type: "error", inputs: [] },
   { name: "ProjectNotTradable", type: "error", inputs: [] },
   { name: "ProjectComplete", type: "error", inputs: [] },
   { name: "ReleasePending", type: "error", inputs: [] },
@@ -95,7 +100,7 @@ export const VAULT_ABI = [
   { name: "VetoActive", type: "error", inputs: [] },
   { name: "AlreadyVetoed", type: "error", inputs: [] },
   { name: "AlreadyVoted", type: "error", inputs: [] },
-  { name: "InsufficientStake", type: "error", inputs: [] },
+  { name: "NotAMM", type: "error", inputs: [] },
   { name: "NoRequest", type: "error", inputs: [] },
   { name: "VetoWindowOver", type: "error", inputs: [] },
   { name: "VetoWindowNotOver", type: "error", inputs: [] },

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { gql } from "@apollo/client";
 import {
@@ -6,13 +6,12 @@ import {
   usePublicClient,
   useReadContract,
   useReadContracts,
-  useWriteContract,
-  useWaitForTransactionReceipt,
 } from "wagmi";
 import { formatUnits } from "viem";
 import { CONTRACTS } from "@/config/contracts";
 import { VAULT_ABI, AMM_ABI, ERC1155_ABI } from "@/config/abis";
 import { apolloClient, SUBGRAPH_URL } from "@/lib/apollo";
+import { useContractAction } from "@/hooks/useContractAction";
 
 /* ─── constants ─── */
 const USDC_DEC = 6;
@@ -41,17 +40,10 @@ const FOUNDER_FUNDING_NOTIFICATIONS_QUERY = gql`
 
 /* ─── helpers ─── */
 const toUSDC = (v: bigint) => Number(formatUnits(v, USDC_DEC));
-const asReadResult = (entry: unknown): unknown => {
-  if (!entry) return undefined;
-  if (typeof entry === "object" && "status" in (entry as Record<string, unknown>)) {
-    const e = entry as { status?: string; result?: unknown };
-    return e.status === "success" ? e.result : undefined;
-  }
-  if (typeof entry === "object" && "result" in (entry as Record<string, unknown>)) {
-    return (entry as { result?: unknown }).result;
-  }
-  return entry;
-};
+
+type ReadEntry = { status: string; result?: unknown } | undefined;
+const ok = <T>(entry: ReadEntry): T | undefined =>
+  entry?.status === "success" ? (entry.result as T) : undefined;
 
 function daysLeft(deadline: bigint): number {
   const secs = Number(deadline) - Math.floor(Date.now() / 1000);
@@ -159,86 +151,46 @@ export interface FundingNotification {
   txHash: string;
 }
 
-interface NormalizedProject {
-  founder: string;
-  treasury: string;
-  milestoneCount: bigint;
-  totalRaised: bigint;
-  totalReleased: bigint;
-  currentMilestone: bigint;
-  releaseRequestedAt: bigint;
-  releaseVetoed: boolean;
-  metadataUri: string;
-  fundingGoal: bigint;
-  fundingDeadline: bigint;
-  approved: boolean;
-  name: string;
-  description: string;
-  additionalFilesUrl: string;
-  iconUrl: string;
-  totalAmmSeeded: bigint;
-  milestoneWindow: bigint;
-  milestoneDeadline: bigint;
-  timeoutActive: boolean;
-  timeoutOpenedAt: bigint;
-  projectDead: boolean;
-  releaseApproved: boolean;
-}
+type ProjectTuple = readonly [
+  /*0  founder*/            string,  /*1  treasury*/           string,
+  /*2  milestoneCount*/     bigint,  /*3  totalRaised*/        bigint,
+  /*4  totalReleased*/      bigint,  /*5  currentMilestone*/   bigint,
+  /*6  releaseRequestedAt*/ bigint,  /*7  releaseVetoed*/      boolean,
+  /*8  metadataUri*/        string,  /*9  fundingGoal*/        bigint,
+  /*10 fundingDeadline*/    bigint,  /*11 approved*/           boolean,
+  /*12 name*/               string,  /*13 description*/        string,
+  /*14 additionalFilesUrl*/ string,  /*15 iconUrl*/            string,
+  /*16 totalAmmSeeded*/     bigint,  /*17 milestoneWindow*/    bigint,
+  /*18 milestoneDeadline*/  bigint,  /*19 timeoutActive*/      boolean,
+  /*20 timeoutOpenedAt*/    bigint,  /*21 projectDead*/        boolean,
+  /*22 releaseApproved*/    boolean,
+];
 
-function normalizeProject(projRaw: Record<string, unknown> | readonly unknown[]): NormalizedProject {
-  if (Array.isArray(projRaw)) {
-    return {
-      founder: String(projRaw[0] ?? ""),
-      treasury: String(projRaw[1] ?? ""),
-      milestoneCount: (projRaw[2] ?? 0n) as bigint,
-      totalRaised: (projRaw[3] ?? 0n) as bigint,
-      totalReleased: (projRaw[4] ?? 0n) as bigint,
-      currentMilestone: (projRaw[5] ?? 0n) as bigint,
-      releaseRequestedAt: (projRaw[6] ?? 0n) as bigint,
-      releaseVetoed: Boolean(projRaw[7]),
-      metadataUri: String(projRaw[8] ?? ""),
-      fundingGoal: (projRaw[9] ?? 0n) as bigint,
-      fundingDeadline: (projRaw[10] ?? 0n) as bigint,
-      approved: Boolean(projRaw[11]),
-      name: String(projRaw[12] ?? ""),
-      description: String(projRaw[13] ?? ""),
-      additionalFilesUrl: String(projRaw[14] ?? ""),
-      iconUrl: String(projRaw[15] ?? ""),
-      totalAmmSeeded: (projRaw[16] ?? 0n) as bigint,
-      milestoneWindow: (projRaw[17] ?? 0n) as bigint,
-      milestoneDeadline: (projRaw[18] ?? 0n) as bigint,
-      timeoutActive: Boolean(projRaw[19]),
-      timeoutOpenedAt: (projRaw[20] ?? 0n) as bigint,
-      projectDead: Boolean(projRaw[21]),
-      releaseApproved: Boolean(projRaw[22]),
-    };
-  }
-
-  const projObj = projRaw as Record<string, unknown>;
+function normalizeProject(r: ProjectTuple) {
   return {
-    founder: String(projObj.founder ?? ""),
-    treasury: String(projObj.treasury ?? ""),
-    milestoneCount: (projObj.milestoneCount ?? 0n) as bigint,
-    totalRaised: (projObj.totalRaised ?? 0n) as bigint,
-    totalReleased: (projObj.totalReleased ?? 0n) as bigint,
-    currentMilestone: (projObj.currentMilestone ?? 0n) as bigint,
-    releaseRequestedAt: (projObj.releaseRequestedAt ?? 0n) as bigint,
-    releaseVetoed: Boolean(projObj.releaseVetoed ?? false),
-    metadataUri: String(projObj.metadataUri ?? ""),
-    fundingGoal: (projObj.fundingGoal ?? 0n) as bigint,
-    fundingDeadline: (projObj.fundingDeadline ?? 0n) as bigint,
-    approved: Boolean(projObj.approved ?? false),
-    name: String(projObj.name ?? ""),
-    description: String(projObj.description ?? ""),
-    additionalFilesUrl: String(projObj.additionalFilesUrl ?? ""),
-    iconUrl: String(projObj.iconUrl ?? ""),
-    totalAmmSeeded: (projObj.totalAmmSeeded ?? 0n) as bigint,
-    milestoneWindow: (projObj.milestoneWindow ?? 0n) as bigint,
-    milestoneDeadline: (projObj.milestoneDeadline ?? 0n) as bigint,
-    timeoutActive: Boolean(projObj.timeoutActive ?? false),
-    timeoutOpenedAt: (projObj.timeoutOpenedAt ?? 0n) as bigint,
-    projectDead: Boolean(projObj.projectDead ?? false),
-    releaseApproved: Boolean(projObj.releaseApproved ?? false),
+    founder:            r[0],
+    treasury:           r[1],
+    milestoneCount:     r[2],
+    totalRaised:        r[3],
+    totalReleased:      r[4],
+    currentMilestone:   r[5],
+    releaseRequestedAt: r[6],
+    releaseVetoed:      r[7],
+    metadataUri:        r[8],
+    fundingGoal:        r[9],
+    fundingDeadline:    r[10],
+    approved:           r[11],
+    name:               r[12],
+    description:        r[13],
+    additionalFilesUrl: r[14],
+    iconUrl:            r[15],
+    totalAmmSeeded:     r[16],
+    milestoneWindow:    r[17],
+    milestoneDeadline:  r[18],
+    timeoutActive:      r[19],
+    timeoutOpenedAt:    r[20],
+    projectDead:        r[21],
+    releaseApproved:    r[22],
   };
 }
 
@@ -295,7 +247,7 @@ export function usePortfolioData() {
 
     return allProjectsData
       .map((entry, i) => {
-        const raw = asReadResult(entry) as Record<string, unknown> | readonly unknown[] | undefined;
+        const raw = ok<ProjectTuple>(entry as ReadEntry);
         if (!raw) return null;
         const project = normalizeProject(raw);
         if (project.founder.toLowerCase() !== address.toLowerCase()) return null;
@@ -450,7 +402,7 @@ export function usePortfolioData() {
     return holdingsData
       .map((entry, i) => ({
         id: BigInt(i + 1),
-        amount: (asReadResult(entry) ?? 0n) as bigint,
+        amount: ok<bigint>(entry as ReadEntry) ?? 0n,
       }))
       .filter(({ amount }) => amount > 0n);
   }, [holdingsData]);
@@ -522,177 +474,28 @@ export function usePortfolioData() {
     ? toUSDC(claimableYieldRaw as bigint)
     : 0;
 
-  /* ── 6. Write: claim yield ── */
-  const {
-    writeContract: writeClaimYield,
-    data: claimYieldHash,
-    isPending: claimYieldPending,
-  } = useWriteContract();
+  /* ── tracking ids for in-flight txs ── */
+  const [votingId,          setVotingId]          = useState<bigint | null>(null);
+  const [approvingId,       setApprovingId]        = useState<bigint | null>(null);
+  const [refundingId,       setRefundingId]        = useState<bigint | null>(null);
+  const [cancellingId,      setCancellingId]       = useState<bigint | null>(null);
+  const [timeoutRefundingId,setTimeoutRefundingId] = useState<bigint | null>(null);
+  const [vetoRefundingId,   setVetoRefundingId]    = useState<bigint | null>(null);
+  const [founderActionId,   setFounderActionId]    = useState<bigint | null>(null);
+  const [founderActionError,setFounderActionError] = useState("");
 
-  const { isLoading: claimYieldConfirming, isSuccess: claimYieldSuccess } =
-    useWaitForTransactionReceipt({ hash: claimYieldHash });
+  const refetchPositions = () => { refetchHoldings(); refetchBatch(); };
 
-  /* ── 6b. Write: harvest yield ── */
-  const {
-    writeContract: writeHarvestYield,
-    data: harvestYieldHash,
-    isPending: harvestYieldPending,
-  } = useWriteContract();
-
-  const { isLoading: harvestYieldConfirming, isSuccess: harvestYieldSuccess } =
-    useWaitForTransactionReceipt({ hash: harvestYieldHash });
-
-  /* ── 7. Write: veto ── */
-  const {
-    writeContract: writeVeto,
-    data: vetoHash,
-    isPending: vetoPending,
-  } = useWriteContract();
-
-  const [votingId, setVotingId] = useState<bigint | null>(null);
-  const [approvingId, setApprovingId] = useState<bigint | null>(null);
-
-  const { isLoading: vetoConfirming, isSuccess: vetoSuccess } =
-    useWaitForTransactionReceipt({ hash: vetoHash });
-
-  /* ── 7b. Write: approve release (backer early-release vote) ── */
-  const {
-    writeContract: writeApproveRelease,
-    data: approveReleaseHash,
-    isPending: approveReleasePending,
-  } = useWriteContract();
-
-  const { isLoading: approveReleaseConfirming, isSuccess: approveReleaseSuccess } =
-    useWaitForTransactionReceipt({ hash: approveReleaseHash });
-
-  /* ── 8. Write: refund failed project ── */
-  const {
-    writeContract: writeRefund,
-    data: refundHash,
-    isPending: refundPending,
-  } = useWriteContract();
-
-  const [refundingId, setRefundingId] = useState<bigint | null>(null);
-
-  const { isLoading: refundConfirming, isSuccess: refundSuccess } =
-    useWaitForTransactionReceipt({ hash: refundHash });
-
-  /* ── 8b. Write: cancel veto vote ── */
-  const {
-    writeContract: writeCancelVeto,
-    data: cancelVetoHash,
-    isPending: cancelVetoPending,
-  } = useWriteContract();
-
-  const [cancellingId, setCancellingId] = useState<bigint | null>(null);
-
-  const { isLoading: cancelVetoConfirming, isSuccess: cancelVetoSuccess } =
-    useWaitForTransactionReceipt({ hash: cancelVetoHash });
-
-  /* ── 8c. Write: claim timeout refund (dead project) ── */
-  const {
-    writeContract: writeTimeoutRefund,
-    data: timeoutRefundHash,
-    isPending: timeoutRefundPending,
-  } = useWriteContract();
-
-  const [timeoutRefundingId, setTimeoutRefundingId] = useState<bigint | null>(null);
-
-  const { isLoading: timeoutRefundConfirming, isSuccess: timeoutRefundSuccess } =
-    useWaitForTransactionReceipt({ hash: timeoutRefundHash });
-
-  /* ── 8d. Write: claim veto refund (vetoed release) ── */
-  const {
-    writeContract: writeVetoRefund,
-    data: vetoRefundHash,
-    isPending: vetoRefundPending,
-  } = useWriteContract();
-
-  const [vetoRefundingId, setVetoRefundingId] = useState<bigint | null>(null);
-
-  const { isLoading: vetoRefundConfirming, isSuccess: vetoRefundSuccess } =
-    useWaitForTransactionReceipt({ hash: vetoRefundHash });
-
-  /* ── 9. Founder write actions ── */
-  const {
-    writeContract: writeFounderAction,
-    data: founderActionHash,
-    isPending: founderActionPending,
-  } = useWriteContract();
-
-  const [founderActionId, setFounderActionId] = useState<bigint | null>(null);
-  const [founderActionError, setFounderActionError] = useState("");
-
-  const { isLoading: founderActionConfirming, isSuccess: founderActionSuccess } =
-    useWaitForTransactionReceipt({ hash: founderActionHash });
-
-  /* ── Refetch on tx success ── */
-  useEffect(() => {
-    if (claimYieldSuccess) refetchYield();
-  }, [claimYieldSuccess, refetchYield]);
-
-  useEffect(() => {
-    if (harvestYieldSuccess) {
-      refetchYield();
-    }
-  }, [harvestYieldSuccess, refetchYield]);
-
-  useEffect(() => {
-    if (approveReleaseSuccess) {
-      refetchHoldings();
-      refetchBatch();
-      setApprovingId(null);
-    }
-  }, [approveReleaseSuccess, refetchBatch, refetchHoldings]);
-
-  useEffect(() => {
-    if (vetoSuccess) {
-      refetchHoldings();
-      refetchBatch();
-      setVotingId(null);
-    }
-  }, [vetoSuccess, refetchBatch, refetchHoldings]);
-
-  useEffect(() => {
-    if (refundSuccess) {
-      refetchHoldings();
-      refetchBatch();
-      setRefundingId(null);
-    }
-  }, [refundSuccess, refetchBatch, refetchHoldings]);
-
-  useEffect(() => {
-    if (cancelVetoSuccess) {
-      refetchHoldings();
-      refetchBatch();
-      setCancellingId(null);
-    }
-  }, [cancelVetoSuccess, refetchBatch, refetchHoldings]);
-
-  useEffect(() => {
-    if (founderActionSuccess) {
-      refetchAllProjects();
-      refetchBatch();
-      setFounderActionId(null);
-      setFounderActionError("");
-    }
-  }, [founderActionSuccess, refetchAllProjects, refetchBatch]);
-
-  useEffect(() => {
-    if (timeoutRefundSuccess) {
-      refetchHoldings();
-      refetchBatch();
-      setTimeoutRefundingId(null);
-    }
-  }, [timeoutRefundSuccess, refetchBatch, refetchHoldings]);
-
-  useEffect(() => {
-    if (vetoRefundSuccess) {
-      refetchHoldings();
-      refetchBatch();
-      setVetoRefundingId(null);
-    }
-  }, [vetoRefundSuccess, refetchBatch, refetchHoldings]);
+  /* ── 6. Write actions ── */
+  const claimYieldAction    = useContractAction(() => refetchYield());
+  const harvestYieldAction  = useContractAction(() => refetchYield());
+  const vetoAction          = useContractAction(() => { refetchPositions(); setVotingId(null); });
+  const approveReleaseAction= useContractAction(() => { refetchPositions(); setApprovingId(null); });
+  const refundAction        = useContractAction(() => { refetchPositions(); setRefundingId(null); });
+  const cancelVetoAction    = useContractAction(() => { refetchPositions(); setCancellingId(null); });
+  const timeoutRefundAction = useContractAction(() => { refetchPositions(); setTimeoutRefundingId(null); });
+  const vetoRefundAction    = useContractAction(() => { refetchPositions(); setVetoRefundingId(null); });
+  const founderAction       = useContractAction(() => { refetchAllProjects(); refetchBatch(); setFounderActionId(null); setFounderActionError(""); });
 
   /* ── 9. Derive positions ── */
   const FIELDS = 7; // calls per position in the batch
@@ -704,21 +507,16 @@ export function usePortfolioData() {
       .map(({ id, amount }, i) => {
         const base = i * FIELDS;
 
-        const projRaw = asReadResult(batchData[base]) as
-          | Record<string, unknown>
-          | readonly unknown[]
-          | undefined;
+        const projTuple = ok<ProjectTuple>(batchData[base] as ReadEntry);
+        if (!projTuple) return null;
+        const proj = normalizeProject(projTuple);
 
-        if (!projRaw) return null;
-
-        const proj = normalizeProject(projRaw);
-
-        const poolUsdc   = (asReadResult(batchData[base + 1]) ?? 0n) as bigint;
-        const poolCommit = (asReadResult(batchData[base + 2]) ?? 0n) as bigint;
-        const seeded     = Boolean(asReadResult(batchData[base + 3]) ?? false);
-        const totalSupplyRaw = (asReadResult(batchData[base + 4]) ?? 0n) as bigint;
-        const voted      = Boolean(asReadResult(batchData[base + 5]) ?? false);
-        const approvedRelease = Boolean(asReadResult(batchData[base + 6]) ?? false);
+        const poolUsdc        = ok<bigint>(batchData[base + 1] as ReadEntry) ?? 0n;
+        const poolCommit      = ok<bigint>(batchData[base + 2] as ReadEntry) ?? 0n;
+        const seeded          = ok<boolean>(batchData[base + 3] as ReadEntry) ?? false;
+        const totalSupplyRaw  = ok<bigint>(batchData[base + 4] as ReadEntry) ?? 0n;
+        const voted           = ok<boolean>(batchData[base + 5] as ReadEntry) ?? false;
+        const approvedRelease = ok<boolean>(batchData[base + 6] as ReadEntry) ?? false;
 
         const tokensHeld   = toUSDC(amount);
         const totalProjectTokens = toUSDC(totalSupplyRaw);
@@ -793,66 +591,46 @@ export function usePortfolioData() {
   }, [activeHoldings, batchData, totalYieldClaimable]);
 
   /* ── Public actions ── */
-  function claimYield() {
-    writeClaimYield({
-      address: CONTRACTS.VAULT,
-      abi: VAULT_ABI,
-      functionName: "claimYield",
-    });
-  }
+  type VaultFn = Parameters<typeof claimYieldAction.write>[0] & {
+    address: `0x${string}`;
+    functionName: string;
+  };
+  const vaultCall = (functionName: string, args?: readonly unknown[]): VaultFn =>
+    ({ address: CONTRACTS.VAULT as `0x${string}`, abi: VAULT_ABI, functionName, ...(args && { args }) }) as VaultFn;
 
-  function harvestYield() {
-    writeHarvestYield({
-      address: CONTRACTS.VAULT,
-      abi: VAULT_ABI,
-      functionName: "harvestYield",
-    });
-  }
+  const claimYield   = () => claimYieldAction.write(vaultCall("claimYield"));
+  const harvestYield = () => harvestYieldAction.write(vaultCall("harvestYield"));
 
   function castVeto(projectId: bigint) {
     setVotingId(projectId);
-    writeVeto({
-      address: CONTRACTS.VAULT,
-      abi: VAULT_ABI,
-      functionName: "veto",
-      args: [projectId],
-    });
+    vetoAction.write(vaultCall("veto", [projectId]));
   }
-
   function approveRelease(projectId: bigint) {
     setApprovingId(projectId);
-    writeApproveRelease({
-      address: CONTRACTS.VAULT,
-      abi: VAULT_ABI,
-      functionName: "approveRelease",
-      args: [projectId],
-    });
+    approveReleaseAction.write(vaultCall("approveRelease", [projectId]));
   }
-
   function cancelVeto(projectId: bigint) {
     setCancellingId(projectId);
-    writeCancelVeto({
-      address: CONTRACTS.VAULT,
-      abi: VAULT_ABI,
-      functionName: "cancelVeto",
-      args: [projectId],
-    });
+    cancelVetoAction.write(vaultCall("cancelVeto", [projectId]));
   }
-
   function refund(projectId: bigint) {
     setRefundingId(projectId);
-    writeRefund({
-      address: CONTRACTS.VAULT,
-      abi: VAULT_ABI,
-      functionName: "refund",
-      args: [projectId],
-    });
+    refundAction.write(vaultCall("refund", [projectId]));
+  }
+  function claimTimeoutRefund(projectId: bigint) {
+    setTimeoutRefundingId(projectId);
+    timeoutRefundAction.write(vaultCall("claimTimeoutRefund", [projectId]));
+  }
+  function claimVetoRefund(projectId: bigint) {
+    setVetoRefundingId(projectId);
+    vetoRefundAction.write(vaultCall("claimVetoRefund", [projectId]));
   }
 
-  async function runFounderAction(functionName: "claimInitialMilestoneRelease" | "verifyNextMilestone" | "requestRelease" | "executeRelease" | "clearVeto", projectId: bigint) {
+  type FounderFn = "claimInitialMilestoneRelease" | "verifyNextMilestone" | "requestRelease" | "executeRelease" | "clearVeto";
+
+  async function runFounderAction(functionName: FounderFn, projectId: bigint) {
     setFounderActionId(projectId);
     setFounderActionError("");
-
     try {
       if (publicClient && address) {
         await publicClient.simulateContract({
@@ -863,66 +641,23 @@ export function usePortfolioData() {
           args: [projectId],
         });
       }
-
-      writeFounderAction(
-        {
-          address: CONTRACTS.VAULT,
-          abi: VAULT_ABI,
-          functionName,
-          args: [projectId],
+      founderAction.write(vaultCall(functionName, [projectId]), {
+        onError: (error: Error) => {
+          setFounderActionError(friendlyFounderActionError(error));
+          setFounderActionId(null);
         },
-        {
-          onError: (error) => {
-            setFounderActionError(friendlyFounderActionError(error));
-            setFounderActionId(null);
-          },
-        },
-      );
-    } catch (error) {
+      });
+    } catch (error: unknown) {
       setFounderActionError(friendlyFounderActionError(error));
       setFounderActionId(null);
     }
   }
 
-  function claimInitialMilestoneRelease(projectId: bigint) {
-    void runFounderAction("claimInitialMilestoneRelease", projectId);
-  }
-
-  function verifyNextMilestone(projectId: bigint) {
-    void runFounderAction("verifyNextMilestone", projectId);
-  }
-
-  function requestRelease(projectId: bigint) {
-    void runFounderAction("requestRelease", projectId);
-  }
-
-  function executeRelease(projectId: bigint) {
-    void runFounderAction("executeRelease", projectId);
-  }
-
-  function clearVeto(projectId: bigint) {
-    void runFounderAction("clearVeto", projectId);
-  }
-
-  function claimTimeoutRefund(projectId: bigint) {
-    setTimeoutRefundingId(projectId);
-    writeTimeoutRefund({
-      address: CONTRACTS.VAULT,
-      abi: VAULT_ABI,
-      functionName: "claimTimeoutRefund",
-      args: [projectId],
-    });
-  }
-
-  function claimVetoRefund(projectId: bigint) {
-    setVetoRefundingId(projectId);
-    writeVetoRefund({
-      address: CONTRACTS.VAULT,
-      abi: VAULT_ABI,
-      functionName: "claimVetoRefund",
-      args: [projectId],
-    });
-  }
+  const claimInitialMilestoneRelease = (id: bigint) => void runFounderAction("claimInitialMilestoneRelease", id);
+  const verifyNextMilestone  = (id: bigint) => void runFounderAction("verifyNextMilestone", id);
+  const requestRelease       = (id: bigint) => void runFounderAction("requestRelease", id);
+  const executeRelease       = (id: bigint) => void runFounderAction("executeRelease", id);
+  const clearVeto            = (id: bigint) => void runFounderAction("clearVeto", id);
 
   function refetch() {
     refetchHoldings();
@@ -942,16 +677,16 @@ export function usePortfolioData() {
     myProjectsLoading:
       enabled && !!projectCount && allProjectContracts.length > 0 && !allProjectsData,
     fundingNotificationsLoading: fundingNotificationsQuery.isLoading,
-    claimYieldLoading:   claimYieldPending || claimYieldConfirming,
-    harvestYieldLoading: harvestYieldPending || harvestYieldConfirming,
-    vetoLoading:         vetoPending || vetoConfirming,
-    approveReleaseLoading: approveReleasePending || approveReleaseConfirming,
-    cancelVetoLoading:   cancelVetoPending || cancelVetoConfirming,
-    refundLoading:       refundPending || refundConfirming,
-    founderActionLoading: founderActionPending || founderActionConfirming,
+    claimYieldLoading:    claimYieldAction.isLoading,
+    harvestYieldLoading:  harvestYieldAction.isLoading,
+    vetoLoading:          vetoAction.isLoading,
+    approveReleaseLoading:approveReleaseAction.isLoading,
+    cancelVetoLoading:    cancelVetoAction.isLoading,
+    refundLoading:        refundAction.isLoading,
+    founderActionLoading: founderAction.isLoading,
     founderActionError,
-    timeoutRefundLoading: timeoutRefundPending || timeoutRefundConfirming,
-    vetoRefundLoading: vetoRefundPending || vetoRefundConfirming,
+    timeoutRefundLoading: timeoutRefundAction.isLoading,
+    vetoRefundLoading:    vetoRefundAction.isLoading,
     votingId,
     approvingId,
     cancellingId,

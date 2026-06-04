@@ -209,12 +209,21 @@ export function useAmmData(
       let description = "";
 
       if (projectRes?.status === "success") {
-        const project = projectRes.result as readonly [
-          string, string, bigint, bigint, bigint,
-          bigint, bigint, boolean, string, bigint, bigint, boolean,
-          string, string, string, string, bigint,
-          bigint, bigint, boolean, bigint, boolean, boolean,
+        type ProjectTuple = readonly [
+          /*0  founder*/            string,  /*1  treasury*/           string,
+          /*2  milestoneCount*/     bigint,  /*3  totalRaised*/        bigint,
+          /*4  totalReleased*/      bigint,  /*5  currentMilestone*/   bigint,
+          /*6  releaseRequestedAt*/ bigint,  /*7  releaseVetoed*/      boolean,
+          /*8  metadataUri*/        string,  /*9  fundingGoal*/        bigint,
+          /*10 fundingDeadline*/    bigint,  /*11 approved*/           boolean,
+          /*12 name*/               string,  /*13 description*/        string,
+          /*14 additionalFilesUrl*/ string,  /*15 iconUrl*/            string,
+          /*16 totalAmmSeeded*/     bigint,  /*17 milestoneWindow*/    bigint,
+          /*18 milestoneDeadline*/  bigint,  /*19 timeoutActive*/      boolean,
+          /*20 timeoutOpenedAt*/    bigint,  /*21 projectDead*/        boolean,
+          /*22 releaseApproved*/    boolean,
         ];
+        const project = projectRes.result as ProjectTuple;
         totalRaised = toNum(project[3]);
         fundingGoal = toNum(project[9]);
         fundingDeadline = project[10];

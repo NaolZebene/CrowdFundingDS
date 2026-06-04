@@ -11,8 +11,85 @@ const short = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
 const POLL_MS = 30_000;
 
+type Args = Record<string, unknown>;
+type Handler = (args: Args) => void;
+
+const vaultHandlers: Record<string, Handler> = {
+  Invested: ({ projectId, investor, amount }) => {
+    if (!projectId || !amount) return;
+    toast.success(`New investment on Project #${projectId}`, {
+      description: `${short(String(investor ?? ""))} backed ${fmtUSD(amount as bigint)}`,
+    });
+  },
+  ProjectApproved: ({ projectId }) => {
+    if (!projectId) return;
+    toast.success(`Project #${projectId} approved`, {
+      description: "Funding is now open for backers.",
+    });
+  },
+  ReleaseRequested: ({ projectId, milestone }) => {
+    if (!projectId) return;
+    toast.warning(`Release requested — Project #${projectId}`, {
+      description: `Milestone ${milestone} · 3-day veto window is open.`,
+    });
+  },
+  FundsReleased: ({ projectId, milestone, amount }) => {
+    if (!projectId || !amount) return;
+    toast.success(`Funds released — Project #${projectId}`, {
+      description: `Milestone ${milestone} · ${fmtUSD(amount as bigint)} sent to treasury.`,
+    });
+  },
+  VetoedEvent: ({ projectId, by }) => {
+    if (!projectId) return;
+    toast.error(`Veto cast on Project #${projectId}`, {
+      description: `By ${short(String(by ?? ""))}`,
+    });
+  },
+  YieldClaimed: ({ user, amount }) => {
+    if (!amount) return;
+    toast.success(`Yield claimed`, {
+      description: `${short(String(user ?? ""))} claimed ${fmtUSD(amount as bigint)}`,
+    });
+  },
+  MilestoneTimeoutOpened: ({ projectId }) => {
+    if (!projectId) return;
+    toast.warning(`Milestone timeout opened — Project #${projectId}`, {
+      description: "3-day governance vote is now open. Vote to extend or refund.",
+    });
+  },
+  TimeoutVoteCast: ({ projectId, voter, extend, stake }) => {
+    if (!projectId) return;
+    toast(`Timeout vote cast — Project #${projectId}`, {
+      description: `${short(String(voter ?? ""))} voted ${extend ? "Extend" : "Refund"} with ${stake ? fmtUSD(stake as bigint) : "?"} tokens`,
+    });
+  },
+  TimeoutResolved: ({ projectId, extended }) => {
+    if (!projectId) return;
+    extended
+      ? toast.success(`Deadline extended — Project #${projectId}`, { description: "Governance voted to give the founder more time." })
+      : toast.error(`Project killed — Project #${projectId}`, { description: "Governance voted to refund backers. Claim your pro-rata share." });
+  },
+  AmmSeeded: ({ projectId, usdcIn }) => {
+    if (!projectId || !usdcIn) return;
+    toast.success(`AMM pool seeded — Project #${projectId}`, {
+      description: `${fmtUSD(usdcIn as bigint)} liquidity added. Trading is now live.`,
+    });
+  },
+};
+
+const ammHandlers: Record<string, Handler> = {
+  Swap: ({ projectId, user, amountIn, amountOut, tokenIn }) => {
+    if (!projectId || !amountIn || !amountOut) return;
+    const isBuy = String(tokenIn ?? "").toLowerCase() !== CONTRACTS.COMMIT.toLowerCase();
+    toast(isBuy ? `Buy — Project #${projectId}` : `Sell — Project #${projectId}`, {
+      description: isBuy
+        ? `${short(String(user ?? ""))} bought ${fmtUSD(amountOut as bigint)} tokens for ${fmtUSD(amountIn as bigint)}`
+        : `${short(String(user ?? ""))} sold ${fmtUSD(amountIn as bigint)} tokens for ${fmtUSD(amountOut as bigint)}`,
+    });
+  },
+};
+
 export function useContractEvents() {
-  /* ── Vault: all events in one watcher ── */
   useWatchContractEvent({
     address: CONTRACTS.VAULT,
     abi: VAULT_ABI,
@@ -20,81 +97,12 @@ export function useContractEvents() {
     pollingInterval: POLL_MS,
     onLogs(logs) {
       for (const log of logs) {
-        const name = (log as { eventName?: string }).eventName;
-        const args = log.args as Record<string, unknown>;
-
-        if (name === "Invested") {
-          const { projectId, investor, amount } = args as { projectId?: bigint; investor?: string; amount?: bigint };
-          if (!projectId || !amount) continue;
-          toast.success(`New investment on Project #${projectId}`, {
-            description: `${short(investor ?? "")} backed ${fmtUSD(amount)}`,
-          });
-        } else if (name === "ProjectApproved") {
-          const { projectId } = args as { projectId?: bigint };
-          if (!projectId) continue;
-          toast.success(`Project #${projectId} approved`, {
-            description: "Funding is now open for backers.",
-          });
-        } else if (name === "ReleaseRequested") {
-          const { projectId, milestone } = args as { projectId?: bigint; milestone?: bigint };
-          if (!projectId) continue;
-          toast.warning(`Release requested — Project #${projectId}`, {
-            description: `Milestone ${milestone} · 3-day veto window is open.`,
-          });
-        } else if (name === "FundsReleased") {
-          const { projectId, milestone, amount } = args as { projectId?: bigint; milestone?: bigint; amount?: bigint };
-          if (!projectId || !amount) continue;
-          toast.success(`Funds released — Project #${projectId}`, {
-            description: `Milestone ${milestone} · ${fmtUSD(amount)} sent to treasury.`,
-          });
-        } else if (name === "VetoedEvent") {
-          const { projectId, by } = args as { projectId?: bigint; by?: string };
-          if (!projectId) continue;
-          toast.error(`Veto cast on Project #${projectId}`, {
-            description: `By ${short(by ?? "")}`,
-          });
-        } else if (name === "YieldClaimed") {
-          const { user, amount } = args as { user?: string; amount?: bigint };
-          if (!amount) continue;
-          toast.success(`Yield claimed`, {
-            description: `${short(user ?? "")} claimed ${fmtUSD(amount)}`,
-          });
-        } else if (name === "MilestoneTimeoutOpened") {
-          const { projectId } = args as { projectId?: bigint };
-          if (!projectId) continue;
-          toast.warning(`Milestone timeout opened — Project #${projectId}`, {
-            description: "3-day governance vote is now open. Vote to extend or refund.",
-          });
-        } else if (name === "TimeoutVoteCast") {
-          const { projectId, voter, extend, stake } = args as { projectId?: bigint; voter?: string; extend?: boolean; stake?: bigint };
-          if (!projectId) continue;
-          toast(`Timeout vote cast — Project #${projectId}`, {
-            description: `${short(voter ?? "")} voted ${extend ? "Extend" : "Refund"} with ${stake ? fmtUSD(stake) : "?"} tokens`,
-          });
-        } else if (name === "TimeoutResolved") {
-          const { projectId, extended } = args as { projectId?: bigint; extended?: boolean };
-          if (!projectId) continue;
-          if (extended) {
-            toast.success(`Deadline extended — Project #${projectId}`, {
-              description: "Governance voted to give the founder more time.",
-            });
-          } else {
-            toast.error(`Project killed — Project #${projectId}`, {
-              description: "Governance voted to refund backers. Claim your pro-rata share.",
-            });
-          }
-        } else if (name === "AmmSeeded") {
-          const { projectId, usdcIn } = args as { projectId?: bigint; usdcIn?: bigint };
-          if (!projectId || !usdcIn) continue;
-          toast.success(`AMM pool seeded — Project #${projectId}`, {
-            description: `${fmtUSD(usdcIn)} liquidity added. Trading is now live.`,
-          });
-        }
+        const name = (log as { eventName?: string }).eventName ?? "";
+        vaultHandlers[name]?.(log.args as Args);
       }
     },
   });
 
-  /* ── AMM: all events in one watcher ── */
   useWatchContractEvent({
     address: CONTRACTS.AMM,
     abi: AMM_ABI,
@@ -102,25 +110,8 @@ export function useContractEvents() {
     pollingInterval: POLL_MS,
     onLogs(logs) {
       for (const log of logs) {
-        const name = (log as { eventName?: string }).eventName;
-        const args = log.args as Record<string, unknown>;
-
-        if (name === "Swap") {
-          const { projectId, user, amountIn, amountOut, tokenIn } = args as {
-            projectId?: bigint;
-            user?: string;
-            tokenIn?: string;
-            amountIn?: bigint;
-            amountOut?: bigint;
-          };
-          if (!projectId || !amountIn || !amountOut) continue;
-          const isBuy = tokenIn?.toLowerCase() !== CONTRACTS.COMMIT.toLowerCase();
-          toast(isBuy ? `Buy — Project #${projectId}` : `Sell — Project #${projectId}`, {
-            description: isBuy
-              ? `${short(user ?? "")} bought ${fmtUSD(amountOut)} tokens for ${fmtUSD(amountIn)}`
-              : `${short(user ?? "")} sold ${fmtUSD(amountIn)} tokens for ${fmtUSD(amountOut)}`,
-          });
-        }
+        const name = (log as { eventName?: string }).eventName ?? "";
+        ammHandlers[name]?.(log.args as Args);
       }
     },
   });
