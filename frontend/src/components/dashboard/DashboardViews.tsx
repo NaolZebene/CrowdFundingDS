@@ -81,6 +81,12 @@ function AdminDashboardView() {
     functionName: "YIELD_AMOUNT",
     query: { enabled: isAddressLike(connectedLender) },
   });
+  const { data: lenderAvailableYield, refetch: refetchLenderAvailableYield } = useReadContract({
+    address: isAddressLike(connectedLender) ? connectedLender as `0x${string}` : undefined,
+    abi: MOCK_LENDER_ABI,
+    functionName: "yieldBalance",
+    query: { enabled: isAddressLike(connectedLender) },
+  });
 
   const { data: ammAdmin, refetch: refetchAmmAdmin } = useReadContract({ address: CONTRACTS.AMM, abi: AMM_ABI, functionName: "admin" });
   const { data: ammPendingAdmin, refetch: refetchAmmPending } = useReadContract({ address: CONTRACTS.AMM, abi: AMM_ABI, functionName: "pendingAdmin" });
@@ -121,6 +127,7 @@ function AdminDashboardView() {
     void refetchLenderUsdc();
     void refetchAmmUsdc();
     void refetchTreasuryUsdc();
+    void refetchLenderAvailableYield();
   }, [
     isTxSuccess,
     refetchAmmAdmin,
@@ -137,6 +144,7 @@ function AdminDashboardView() {
     refetchLenderUsdc,
     refetchAmmUsdc,
     refetchTreasuryUsdc,
+    refetchLenderAvailableYield,
     refetchSubmissionFee,
     refetchVaultAdmin,
     refetchVaultPending,
@@ -167,6 +175,7 @@ function AdminDashboardView() {
   const treasuryUSDC   = toN(treasuryUsdcBalance);
   const routerUSDC     = toN(routerUsdcBalance);
   const routerCollectable = (routerUsdcBalance as bigint | undefined) ?? 0n;
+  const availableYield = (lenderAvailableYield as bigint | undefined) ?? 0n;
   const seedYieldAmount = (lenderYieldAmount as bigint | undefined) ?? FALLBACK_SEED_YIELD_AMOUNT;
   const yieldIndexFmt  = vaultYieldIndex ? Number(formatUnits(vaultYieldIndex as bigint, 18)).toFixed(6) : "1.000000";
   const totalProtocolUSDC = vaultUSDC + lenderUSDC + ammUSDC + treasuryUSDC + routerUSDC;
@@ -646,7 +655,9 @@ function AdminDashboardView() {
                       }));
                     }}
                   >Add 0.01 USDC Yield</Button>
-                  <Button size="sm" className="h-9 text-xs md:col-span-2" disabled={isBusy} onClick={() => runAction("Harvest Lender Yield", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "harvestYield" }))}>Harvest Lender Yield</Button>
+                  <Button size="sm" className="h-9 text-xs md:col-span-2" disabled={isBusy || availableYield === 0n} onClick={() => runAction("Harvest Lender Yield", () => writeContract({ address: CONTRACTS.VAULT, abi: VAULT_ABI, functionName: "harvestYield" }))}>
+                    Harvest {Number(formatUnits(availableYield, USDC_DECIMALS)).toFixed(4)} USDC Yield
+                  </Button>
                   <div className="md:col-span-2 border-t border-border pt-3 mt-2">
                     <p className="text-xs text-muted-foreground mb-2">Supply Principal to Lender</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

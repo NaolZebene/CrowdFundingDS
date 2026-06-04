@@ -69,6 +69,7 @@ export const MOCK_LENDER_ABI = [
   { name: "addYield", type: "function", stateMutability: "nonpayable", inputs: [], outputs: [] },
   { name: "supply", type: "function", stateMutability: "nonpayable", inputs: [{ name: "amount", type: "uint256" }], outputs: [] },
   { name: "balance", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { name: "yieldBalance", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { name: "YIELD_AMOUNT", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
 ] as const;
 

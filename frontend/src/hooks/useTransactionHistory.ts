@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import { gql, useQuery } from "@apollo/client";
 import { useAccount } from "wagmi";
 import { SUBGRAPH_URL } from "@/lib/apollo";
 import type { TxRecord } from "@/store/slices/portfolioSlice";
+import { getLiveActivity, LIVE_ACTIVITY_EVENT } from "@/lib/liveActivity";
 
 const PORTFOLIO_HISTORY_QUERY = gql`
   query PortfolioHistory($user: Bytes!) {
@@ -100,11 +102,12 @@ type PortfolioHistoryData = {
  */
 export function useTransactionHistory() {
   const { address } = useAccount();
+  const [liveVersion, setLiveVersion] = useState(0);
 
   const query = useQuery<PortfolioHistoryData>(PORTFOLIO_HISTORY_QUERY, {
     variables: { user: address?.toLowerCase() ?? "0x0000000000000000000000000000000000000000" },
     skip: !address || !SUBGRAPH_CONFIGURED,
-    pollInterval: 30_000,
+    pollInterval: 5_000,
     fetchPolicy: "cache-and-network",
     errorPolicy: "all",
   });
@@ -155,15 +158,45 @@ export function useTransactionHistory() {
       });
     }
 
-    return records.sort(
+    const liveRecords: TxRecord[] = getLiveActivity()
+      .filter((item) => item.user.toLowerCase() === address?.toLowerCase())
+      .map((item) => ({
+        type: item.type === "yield" ? "yield" : item.type === "sell" ? "sell" : "invest",
+        project: item.projectId ? `Project #${item.projectId}` : "All Positions",
+        symbol: item.projectId ? `P${item.projectId}` : "USDC",
+        amount: item.amountUsdc,
+        tokens: item.amountCommit,
+        price: item.price,
+        date: new Date(item.timestamp).toISOString(),
+      }));
+
+    return [...liveRecords, ...records].filter(
+      (record, index, all) =>
+        all.findIndex((other) =>
+          other.type === record.type &&
+          other.project === record.project &&
+          other.amount === record.amount &&
+          other.date === record.date
+        ) === index
+    ).sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
     );
   })();
+
+  useEffect(() => {
+    const handleActivity = () => {
+      setLiveVersion((version) => version + 1);
+      void query.refetch();
+    };
+    window.addEventListener(LIVE_ACTIVITY_EVENT, handleActivity);
+    return () => window.removeEventListener(LIVE_ACTIVITY_EVENT, handleActivity);
+  }, [query.refetch]);
 
   return {
     history,
     isLoading: SUBGRAPH_CONFIGURED && query.loading,
     isError: SUBGRAPH_CONFIGURED && !!query.error,
     refetch: query.refetch,
+    liveVersion,
   };
 }

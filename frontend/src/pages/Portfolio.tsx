@@ -44,8 +44,6 @@ export default function Portfolio() {
     totalYieldClaimable,
     isLoading,
     claimYieldLoading,
-    harvestYieldLoading,
-    harvestYield: handleHarvestYield,
     vetoLoading,
     approveReleaseLoading,
     approvingId,
@@ -163,20 +161,6 @@ export default function Portfolio() {
               >
                 <RefreshCw className="w-3.5 h-3.5" /> Refresh
               </button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-9 gap-1.5 text-xs px-4 border-primary/40 hover:bg-primary/10"
-                onClick={handleHarvestYield}
-                disabled={harvestYieldLoading}
-              >
-                {harvestYieldLoading ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-3.5 h-3.5" />
-                )}
-                Harvest Yield
-              </Button>
               <Button
                 size="sm"
                 className="h-9 gap-1.5 text-xs px-4 shadow-sm shadow-primary/20"

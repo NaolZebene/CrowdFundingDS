@@ -3,6 +3,7 @@ import { formatUnits } from "viem";
 import { toast } from "sonner";
 import { CONTRACTS } from "@/config/contracts";
 import { VAULT_ABI, AMM_ABI } from "@/config/abis";
+import { recordLiveActivity } from "@/lib/liveActivity";
 
 const fmtUSD = (raw: bigint) =>
   `$${Number(formatUnits(raw, 6)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -12,11 +13,25 @@ const short = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 const POLL_MS = 30_000;
 
 type Args = Record<string, unknown>;
-type Handler = (args: Args) => void;
+type EventLog = { transactionHash?: string; logIndex?: number };
+type Handler = (args: Args, log: EventLog) => void;
+const activityId = (name: string, log: EventLog) =>
+  `${log.transactionHash ?? "pending"}-${log.logIndex ?? 0}-${name}`;
 
 const vaultHandlers: Record<string, Handler> = {
-  Invested: ({ projectId, investor, amount }) => {
+  Invested: ({ projectId, investor, amount }, log) => {
     if (!projectId || !amount) return;
+    recordLiveActivity({
+      id: activityId("invest", log),
+      type: "invest",
+      projectId: Number(projectId),
+      user: String(investor ?? ""),
+      amountUsdc: Number(formatUnits(amount as bigint, 6)),
+      amountCommit: Number(formatUnits(amount as bigint, 6)),
+      price: 1,
+      timestamp: Date.now(),
+      txHash: log.transactionHash ?? "",
+    });
     toast.success(`New investment on Project #${projectId}`, {
       description: `${short(String(investor ?? ""))} backed ${fmtUSD(amount as bigint)}`,
     });
@@ -45,8 +60,18 @@ const vaultHandlers: Record<string, Handler> = {
       description: `By ${short(String(by ?? ""))}`,
     });
   },
-  YieldClaimed: ({ user, amount }) => {
+  YieldClaimed: ({ user, amount }, log) => {
     if (!amount) return;
+    recordLiveActivity({
+      id: activityId("yield", log),
+      type: "yield",
+      user: String(user ?? ""),
+      amountUsdc: Number(formatUnits(amount as bigint, 6)),
+      amountCommit: 0,
+      price: 0,
+      timestamp: Date.now(),
+      txHash: log.transactionHash ?? "",
+    });
     toast.success(`Yield claimed`, {
       description: `${short(String(user ?? ""))} claimed ${fmtUSD(amount as bigint)}`,
     });
@@ -78,9 +103,22 @@ const vaultHandlers: Record<string, Handler> = {
 };
 
 const ammHandlers: Record<string, Handler> = {
-  Swap: ({ projectId, user, amountIn, amountOut, tokenIn }) => {
+  Swap: ({ projectId, user, amountIn, amountOut, tokenIn }, log) => {
     if (!projectId || !amountIn || !amountOut) return;
     const isBuy = String(tokenIn ?? "").toLowerCase() !== CONTRACTS.COMMIT.toLowerCase();
+    const usdcAmount = Number(formatUnits((isBuy ? amountIn : amountOut) as bigint, 6));
+    const commitAmount = Number(formatUnits((isBuy ? amountOut : amountIn) as bigint, 6));
+    recordLiveActivity({
+      id: activityId(isBuy ? "buy" : "sell", log),
+      type: isBuy ? "buy" : "sell",
+      projectId: Number(projectId),
+      user: String(user ?? ""),
+      amountUsdc: usdcAmount,
+      amountCommit: commitAmount,
+      price: commitAmount > 0 ? usdcAmount / commitAmount : 0,
+      timestamp: Date.now(),
+      txHash: log.transactionHash ?? "",
+    });
     toast(isBuy ? `Buy — Project #${projectId}` : `Sell — Project #${projectId}`, {
       description: isBuy
         ? `${short(String(user ?? ""))} bought ${fmtUSD(amountOut as bigint)} tokens for ${fmtUSD(amountIn as bigint)}`
@@ -98,7 +136,7 @@ export function useContractEvents() {
     onLogs(logs) {
       for (const log of logs) {
         const name = (log as { eventName?: string }).eventName ?? "";
-        vaultHandlers[name]?.(log.args as Args);
+        vaultHandlers[name]?.(log.args as Args, log as EventLog);
       }
     },
   });
@@ -111,7 +149,7 @@ export function useContractEvents() {
     onLogs(logs) {
       for (const log of logs) {
         const name = (log as { eventName?: string }).eventName ?? "";
-        ammHandlers[name]?.(log.args as Args);
+        ammHandlers[name]?.(log.args as Args, log as EventLog);
       }
     },
   });

@@ -7,7 +7,7 @@ dataSources:
     name: CrowdVault
     network: sepolia
     source:
-      address: "0xa95bf6334783F41dc3a7A7eB35AbF7d49eB68ADd"
+      address: "0x8A78955B6b07Ac699ed7dE6510CF37eBd622330c"
       abi: CrowdVault
       startBlock: 10964400
     mapping:
@@ -52,7 +52,7 @@ dataSources:
     name: CommitmentAMM
     network: sepolia
     source:
-      address: "0x5932a623438d3E3701f90aA04A61A43230Ac71Ba"
+      address: "0x7aCC50349a4d44A98FD1F0Bb6BC3eA60b6EE2b59"
       abi: CommitmentAMM
       startBlock: 10964400
     mapping:

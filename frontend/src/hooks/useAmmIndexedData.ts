@@ -1,5 +1,6 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { gql, useQuery } from "@apollo/client";
+import { getLiveActivity, LIVE_ACTIVITY_EVENT } from "@/lib/liveActivity";
 
 export type ChartRange = "1H" | "6H" | "1D" | "1W";
 
@@ -124,6 +125,7 @@ function fallbackCandlesFromTrades(trades: AmmTradeItem[], range: ChartRange): A
 }
 
 export function useAmmIndexedData(projectId: number, range: ChartRange) {
+  const [liveVersion, setLiveVersion] = useState(0);
   const now = Math.floor(Date.now() / 1000);
   const hourFrom = now - 30 * 24 * 3600; // fetch 30 days of hourly data
   const dayFrom  = now - 90 * 24 * 3600; // fetch 90 days of daily data
@@ -146,7 +148,7 @@ export function useAmmIndexedData(projectId: number, range: ChartRange) {
       dayFirst: 90,          // up to 90 daily candles
     },
     skip: projectId <= 0,
-    pollInterval: 30_000,
+    pollInterval: 5_000,
     fetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: false,
   });
@@ -178,7 +180,7 @@ export function useAmmIndexedData(projectId: number, range: ChartRange) {
     volumeUsdc: toNum(d.volumeUsdc),
   });
 
-  const recentTrades: AmmTradeItem[] = ((data?.ammTransactions ?? []) as Array<{
+  const indexedTrades: AmmTradeItem[] = ((data?.ammTransactions ?? []) as Array<{
     id: string;
     txHash: string;
     kind: "BUY" | "SELL" | "SEED";
@@ -203,6 +205,33 @@ export function useAmmIndexedData(projectId: number, range: ChartRange) {
       txHash: s.txHash,
     };
   });
+  const liveTrades: AmmTradeItem[] = getLiveActivity()
+    .filter((item) => item.projectId === projectId && (item.type === "buy" || item.type === "sell"))
+    .map((item) => ({
+      id: item.id,
+      side: item.type === "buy" ? "BUY" : "SELL",
+      user: item.user,
+      usdcAmount: item.amountUsdc,
+      commitAmount: item.amountCommit,
+      price: item.price,
+      reserveUsdcAfter: 0,
+      reserveCommitAfter: 0,
+      timestamp: item.timestamp,
+      txHash: item.txHash,
+    }));
+  const recentTrades = [...liveTrades, ...indexedTrades]
+    .filter((trade, index, all) => all.findIndex((other) => other.id === trade.id) === index)
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 50);
+
+  useEffect(() => {
+    const handleActivity = () => {
+      setLiveVersion((version) => version + 1);
+      void refetch();
+    };
+    window.addEventListener(LIVE_ACTIVITY_EVENT, handleActivity);
+    return () => window.removeEventListener(LIVE_ACTIVITY_EVENT, handleActivity);
+  }, [refetch]);
 
   const freshChartPoints: AmmChartPoint[] = (() => {
     if (range === "1W") return dayData.map(toCandle);
@@ -223,5 +252,6 @@ export function useAmmIndexedData(projectId: number, range: ChartRange) {
     loading,
     error,
     refetch,
+    liveVersion,
   };
 }

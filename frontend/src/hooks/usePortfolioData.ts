@@ -488,7 +488,6 @@ export function usePortfolioData() {
 
   /* ── 6. Write actions ── */
   const claimYieldAction    = useContractAction(() => refetchYield());
-  const harvestYieldAction  = useContractAction(() => refetchYield());
   const vetoAction          = useContractAction(() => { refetchPositions(); setVotingId(null); });
   const approveReleaseAction= useContractAction(() => { refetchPositions(); setApprovingId(null); });
   const refundAction        = useContractAction(() => { refetchPositions(); setRefundingId(null); });
@@ -599,7 +598,6 @@ export function usePortfolioData() {
     ({ address: CONTRACTS.VAULT as `0x${string}`, abi: VAULT_ABI, functionName, ...(args && { args }) }) as VaultFn;
 
   const claimYield   = () => claimYieldAction.write(vaultCall("claimYield"));
-  const harvestYield = () => harvestYieldAction.write(vaultCall("harvestYield"));
 
   function castVeto(projectId: bigint) {
     setVotingId(projectId);
@@ -678,7 +676,6 @@ export function usePortfolioData() {
       enabled && !!projectCount && allProjectContracts.length > 0 && !allProjectsData,
     fundingNotificationsLoading: fundingNotificationsQuery.isLoading,
     claimYieldLoading:    claimYieldAction.isLoading,
-    harvestYieldLoading:  harvestYieldAction.isLoading,
     vetoLoading:          vetoAction.isLoading,
     approveReleaseLoading:approveReleaseAction.isLoading,
     cancelVetoLoading:    cancelVetoAction.isLoading,
@@ -695,7 +692,6 @@ export function usePortfolioData() {
     vetoRefundingId,
     founderActionId,
     claimYield,
-    harvestYield,
     castVeto,
     approveRelease,
     cancelVeto,
