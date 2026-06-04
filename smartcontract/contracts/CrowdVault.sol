@@ -413,6 +413,10 @@ contract CrowdVault {
         if (milestoneCount_ == 0) revert BadMilestones();
         if (fundingDeadline_ == 0 && fundingGoal_ > 0) {
             fundingDeadline_ = block.timestamp + DEFAULT_FUNDING_DEADLINE;
+        } else if (
+            fundingDeadline_ != 0 && fundingDeadline_ <= block.timestamp
+        ) {
+            revert BadDeadline();
         } else if (fundingDeadline_ > block.timestamp + MAX_FUNDING_DEADLINE)
             revert BadDeadline();
         if (milestoneWindow_ == 0) {

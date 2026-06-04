@@ -48,6 +48,8 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
   }, [isTxSuccess, onClose]);
 
   const now = Date.now();
+  const minDeadlineMs = now + 60 * 1000;
+  const minDeadline = formatLocalDateTime(new Date(minDeadlineMs));
   const maxDeadlineMs = now + 90 * 24 * 60 * 60 * 1000;
   const maxDeadline = formatLocalDateTime(new Date(maxDeadlineMs));
 
@@ -63,12 +65,14 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
     if (deadline) {
       const ts = new Date(deadline).getTime();
       if (Number.isNaN(ts)) return false;
+      if (ts < minDeadlineMs) return false;
       if (ts > maxDeadlineMs) return false;
     }
     const windowDays = Number(milestoneWindowDays);
     if (!Number.isFinite(windowDays) || windowDays < 7 || windowDays > 180) return false;
     return true;
   }, [
+    minDeadlineMs,
     maxDeadlineMs,
     treasury,
     milestoneCount,
@@ -196,6 +200,7 @@ export function SubmitProjectModal({ open, onClose }: SubmitProjectModalProps) {
               </label>
               <input
                 type="datetime-local"
+                min={minDeadline}
                 max={maxDeadline}
                 value={deadline}
                 onChange={(e) => setDeadline(e.target.value)}

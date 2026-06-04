@@ -56,7 +56,7 @@ export default function Home() {
     refetch: refetchMarkets,
   } = useMarketsData();
   const openProjects = useMemo(
-    () => projects.filter((project) => project.approved && !project.fundingClosed),
+    () => projects.filter((project) => project.approved && !project.projectDead),
     [projects]
   );
   const count = openProjects.length;

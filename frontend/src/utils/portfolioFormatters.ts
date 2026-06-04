@@ -14,6 +14,7 @@ export const fmtTime = (d: Date) =>
   d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
 export const fmtTimeLeft = (deadline: bigint): string => {
+  if (deadline === 0n) return "Open-ended";
   const now = Math.floor(Date.now() / 1000);
   const deadlineNum = Number(deadline);
   const secsLeft = deadlineNum - now;

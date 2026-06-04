@@ -168,13 +168,15 @@ export function ProjectDetailsModal({
             <div className="bg-secondary/40 border border-border rounded-md p-3">
               <p className="text-[11px] text-muted-foreground">Deadline</p>
               <p className="font-mono">
-                {fmtDateFromUnix(project.fundingDeadline)} (
-                {project.goalMet
-                  ? "funded"
-                  : project.isExpired
-                    ? "expired"
-                    : fmtTimeLeft(project.fundingDeadline)}
-                )
+                {project.fundingDeadline === 0n
+                  ? "No deadline (open-ended)"
+                  : `${fmtDateFromUnix(project.fundingDeadline)} (${
+                      project.goalMet
+                        ? "funded"
+                        : project.isExpired
+                          ? "expired"
+                          : fmtTimeLeft(project.fundingDeadline)
+                    })`}
               </p>
             </div>
           </div>

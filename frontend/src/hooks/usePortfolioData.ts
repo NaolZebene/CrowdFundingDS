@@ -46,6 +46,7 @@ const ok = <T>(entry: ReadEntry): T | undefined =>
   entry?.status === "success" ? (entry.result as T) : undefined;
 
 function daysLeft(deadline: bigint): number {
+  if (deadline === 0n) return Number.MAX_SAFE_INTEGER;
   const secs = Number(deadline) - Math.floor(Date.now() / 1000);
   return Math.max(0, Math.ceil(secs / 86400));
 }
@@ -257,7 +258,7 @@ export function usePortfolioData() {
         const released = toUSDC(project.totalReleased);
         const ammSeeded = toUSDC(project.totalAmmSeeded);
         const fundingDeadline = project.fundingDeadline;
-        const isExpired = Number(fundingDeadline) <= now;
+        const isExpired = fundingDeadline > 0n && Number(fundingDeadline) <= now;
         const milestones = Number(project.milestoneCount);
         const currentUnlockedMilestone = Number(project.currentMilestone);
         const milestonesCompleted = currentUnlockedMilestone >= milestones

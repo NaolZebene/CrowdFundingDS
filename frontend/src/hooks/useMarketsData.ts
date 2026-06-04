@@ -35,12 +35,13 @@ export interface MarketProject {
 }
 
 function daysLeft(deadline: bigint): number {
+  if (deadline === 0n) return Number.MAX_SAFE_INTEGER;
   const secs = Number(deadline) - Math.floor(Date.now() / 1000);
   return Math.max(0, Math.ceil(secs / 86400));
 }
 
 function isExpired(deadline: bigint): boolean {
-  return Number(deadline) <= Math.floor(Date.now() / 1000);
+  return deadline > 0n && Number(deadline) <= Math.floor(Date.now() / 1000);
 }
 
 export function useMarketsData() {
@@ -132,7 +133,11 @@ export function useMarketsData() {
       (acc, project) => {
         acc.totalRaised += project.totalRaised;
         acc.tvl += Math.max(0, project.totalRaised - project.totalReleased);
-        if (project.approved && Number(project.fundingDeadline) > now && !project.goalMet) {
+        if (
+          project.approved &&
+          (project.fundingDeadline === 0n || Number(project.fundingDeadline) > now) &&
+          !project.goalMet
+        ) {
           acc.activeProjectCount += 1;
         }
         return acc;

@@ -25,6 +25,7 @@ export function shortAddr(a: string) {
 }
 
 export function fmtTimeLeft(deadline: bigint): string {
+  if (deadline === 0n) return "Open-ended";
   const now = Math.floor(Date.now() / 1000);
   const deadlineNum = Number(deadline);
   const secsLeft = deadlineNum - now;
@@ -36,4 +37,3 @@ export function fmtTimeLeft(deadline: bigint): string {
   if (hours > 0) return `${hours}h left`;
   return `${mins}m left`;
 }
-

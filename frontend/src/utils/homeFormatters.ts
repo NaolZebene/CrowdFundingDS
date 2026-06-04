@@ -32,10 +32,12 @@ export function shortAddr(a: string) {
 }
 
 export function fmtDateFromUnix(ts: bigint) {
+  if (ts === 0n) return "No deadline";
   return new Date(Number(ts) * 1000).toLocaleDateString();
 }
 
 export const fmtTimeLeft = (deadline: bigint): string => {
+  if (deadline === 0n) return "Open-ended";
   const now = Math.floor(Date.now() / 1000);
   const deadlineNum = Number(deadline);
   const secsLeft = deadlineNum - now;

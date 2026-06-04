@@ -232,7 +232,7 @@ export function useAmmData(
       }
 
       const goalMet = fundingGoal > 0 && totalRaised >= fundingGoal;
-      const fundingClosed = Number(fundingDeadline) <= now; // Only close when deadline passes
+      const fundingClosed = fundingDeadline > 0n && Number(fundingDeadline) <= now;
       const indexed = indexedPoolById.get(i + 1);
       const indexedReserveUsdc = toIndexedToken(indexed?.reserveUsdc);
       const indexedReserveCommit = toIndexedToken(indexed?.reserveCommit);

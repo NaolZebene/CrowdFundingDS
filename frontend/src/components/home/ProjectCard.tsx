@@ -164,7 +164,7 @@ export function ProjectCard({
                 ? "Funded"
                 : project.isExpired
                   ? "Expired"
-                  : `${days}d left`}
+                  : fmtTimeLeft(project.fundingDeadline)}
             </span>
           )}
         </div>
