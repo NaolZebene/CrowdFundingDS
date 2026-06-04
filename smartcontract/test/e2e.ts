@@ -192,9 +192,12 @@ async function main() {
 
   const treasuryBefore: bigint = await usdc.balanceOf(treasury.address);
   await (vault.connect(investor1) as any).approveRelease(1n);
+  ok((await vault.projects(1n)).releaseApproved, "Milestone 2 reached the 30% approval threshold");
+  ok((await vault.projects(1n)).releaseRequestedAt > 0n, "Approval does not release funds inside the backer's vote transaction");
+  await (vault.connect(founder) as any).executeRelease(1n);
   const released = (await usdc.balanceOf(treasury.address) as bigint) - treasuryBefore;
-  ok(released > 0n, `Milestone 2 released early after 30% approval: ${fmt6(released)} USDC to treasury`);
-  ok((await vault.projects(1n)).releaseRequestedAt === 0n, "Release request closed automatically after approval threshold");
+  ok(released > 0n, `Founder claimed milestone 2 after 30% approval: ${fmt6(released)} USDC to treasury`);
+  ok((await vault.projects(1n)).releaseRequestedAt === 0n, "Release request closed after founder execution");
 
   /* ══════════════════════════════════════════════════════
    * 5. VETO FLOW (30% stake threshold)
@@ -252,6 +255,7 @@ async function main() {
   const seededYield = await lender.YIELD_AMOUNT();
   await (usdc.connect(deployer) as any).approve(LENDER, seededYield);
   await (lender.connect(deployer) as any).addYield();
+  ok((await lender.yieldBalance()) === seededYield, "Lender reports only actual accrued yield");
   const lenderBal: bigint = await lender.balance();
   const tvl = (await vault.totalRaised() as bigint)
             - (await vault.totalReleasedGlobal() as bigint)
@@ -267,6 +271,10 @@ async function main() {
   const p2: bigint = await vault.pendingYield(investor2.address);
   ok(p1 > 0n, `investor1 pending yield: ${fmt6(p1)} USDC`);
   ok(p2 > 0n, `investor2 pending yield: ${fmt6(p2)} USDC`);
+
+  let nonAdminHarvestRejected = false;
+  try { await (vault.connect(investor1) as any).harvestYield(); } catch { nonAdminHarvestRejected = true; }
+  ok(nonAdminHarvestRejected, "Only the vault admin can harvest lender yield");
 
   const inv2Before: bigint = await usdc.balanceOf(investor2.address);
   await (vault.connect(investor2) as any).claimYield();
@@ -312,8 +320,12 @@ async function main() {
   // Milestone 3 release (veto was cleared earlier)
   await (vault.connect(founder) as any).requestRelease(1n);
   await mine(3 * 86400 + 60);
-  await (vault.connect(stranger) as any).executeRelease(1n);
+  await (vault.connect(founder) as any).executeRelease(1n);
   ok(true, "Milestone 3 released — revenue router received fee without revert");
+  const collectable = (await router.totalRevenueReceived()) - (await router.totalCollected());
+  ok(collectable > 0n, `Revenue router recorded ${fmt6(collectable)} USDC`);
+  await router.collect();
+  ok((await router.totalCollected()) === (await router.totalRevenueReceived()), "Admin collected all recorded revenue");
 
   /* ══════════════════════════════════════════════════════
    * 10. ADMIN TRANSFER (two-step)

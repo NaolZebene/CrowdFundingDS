@@ -83,6 +83,10 @@ contract MockLender {
         return totalSupplied + accruedYield;
     }
 
+    function yieldBalance() external view returns (uint256) {
+        return accruedYield;
+    }
+
 
     function addYield() external onlyAdmin {
         require(usdc.transferFrom(msg.sender, address(this), YIELD_AMOUNT), "tf");

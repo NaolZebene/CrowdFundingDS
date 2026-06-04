@@ -2,8 +2,8 @@
 pragma solidity ^0.8.20;
 
 interface IERC20Pay {
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(address who) external view returns (uint256);
 }
 
 contract RevenueRouter {
@@ -45,13 +45,13 @@ contract RevenueRouter {
 
     function onRevenue(uint256 amount) external onlyVault {
         if (amount == 0) revert ZeroAmount();
-        if (!usdc.transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
+        if (usdc.balanceOf(address(this)) < amount) revert TransferFailed();
         totalRevenueReceived += amount;
         emit RevenueReceived(amount);
     }
 
     function collect() external onlyAdmin {
-        uint256 toPay = totalRevenueReceived - totalCollected;
+        uint256 toPay = usdc.balanceOf(address(this));
         if (toPay == 0) revert NothingToClaim();
         totalCollected += toPay;
         if (!usdc.transfer(admin, toPay)) revert TransferFailed();

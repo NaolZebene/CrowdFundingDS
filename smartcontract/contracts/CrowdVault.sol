@@ -29,6 +29,7 @@ interface ILender {
     function withdraw(uint256 amount, address to) external;
     function withdrawYield(uint256 amount, address to) external;
     function balance() external view returns (uint256);
+    function yieldBalance() external view returns (uint256);
 }
 
 interface IRevenueRouter {
@@ -726,9 +727,6 @@ contract CrowdVault {
         ) {
             proj.releaseApproved = true;
             emit ReleaseApprovedThresholdMet(projectId);
-            emit ReleaseApproved(projectId, msg.sender);
-            _executeRelease(projectId, proj);
-            return;
         }
 
         emit ReleaseApproved(projectId, msg.sender);
@@ -736,7 +734,7 @@ contract CrowdVault {
 
     function executeRelease(
         uint256 projectId
-    ) external validProject(projectId) {
+    ) external onlyProjectFounder(projectId) {
         Project storage proj = projects[projectId];
         if (proj.releaseRequestedAt == 0) revert NoRequest();
         if (proj.releaseVetoed) revert VetoActive();
@@ -870,15 +868,10 @@ contract CrowdVault {
 
     // ---- lender / yield ----
 
-    function harvestYield() external {
+    function harvestYield() external onlyAdmin {
         if (address(lender) == address(0)) revert NoLender();
-        uint256 distributed = totalReleasedGlobal + totalAmmSeededGlobal;
-        uint256 lockedPrincipal = distributed >= totalRaised
-            ? 0
-            : totalRaised - distributed;
-        uint256 lenderBal = lender.balance();
-        if (lenderBal <= lockedPrincipal) return;
-        uint256 yieldAmt = lenderBal - lockedPrincipal;
+        uint256 yieldAmt = lender.yieldBalance();
+        if (yieldAmt == 0) return;
         lender.withdrawYield(yieldAmt, address(this));
         if (totalRaised > 0) {
             yieldIndex += (yieldAmt * ONE) / totalRaised;

@@ -82,20 +82,12 @@ async function main() {
   }
   console.log("Treasury:", TREASURY);
 
-  // 2) MockLender — deterministic lender for manual yield seeding
-  const existingLender = process.env.LENDER_ADDRESS?.trim();
-  let LENDER: string;
-  let lender: any;
-  if (existingLender && /^0x[a-fA-F0-9]{40}$/.test(existingLender)) {
-    LENDER = existingLender;
-    console.log("MockLender (preserved):", LENDER);
-  } else {
-    const MockLender = await ethers.getContractFactory("MockLender");
-    lender = await MockLender.deploy(USDC);
-    await lender.waitForDeployment();
-    LENDER = await lender.getAddress();
-    console.log("MockLender (new):", LENDER);
-  }
+  // 2) MockLender — always deploy fresh
+  const MockLender = await ethers.getContractFactory("MockLender");
+  const lender = await MockLender.deploy(USDC);
+  await lender.waitForDeployment();
+  const LENDER = await lender.getAddress();
+  console.log("MockLender:", LENDER);
 
   // 3) CommitmentToken
   const CommitmentToken = await ethers.getContractFactory("CommitmentToken");
